@@ -19,7 +19,8 @@ import DREAM.Settings.Equations.ColdElectronTemperature as Temperature
 import DREAM.Settings.Equations.ElectricField as ElectricField
 import DREAM.Settings.Equations.IonSpecies as Ions
 import DREAM.Settings.Equations.OhmicCurrent as OhmicCurrent
-import DREAM.Settings.RadialGrid as RadialGrid
+
+from common import configure_stellarator_geometry
 
 
 ROOT = Path(__file__).resolve().parent
@@ -52,18 +53,20 @@ def build_settings(
     settings_path: Path,
     output_path: Path,
     nr: int = 6,
-    provider: str = "package",
+    provider: str | None = "package",
     cache_filename: Path | None = None,
 ) -> DREAMSettings:
     ds = DREAMSettings()
-
-    ds.radialgrid.setNr(nr)
-    ds.radialgrid.setNtheta(17)
-    ds.radialgrid.setNphi(17)
-    ds.radialgrid.setStellarator(
-        str(source),
+    configure_stellarator_geometry(
+        ds,
+        source=source,
         provider=provider,
-        cache_filename=str(cache_filename) if cache_filename is not None else None,
+        radial_nr=nr,
+        nr_equil=4,
+        ntheta_equil=17,
+        nphi_equil=17,
+        cache_filename=cache_filename,
+        write_cache=cache_filename is not None,
     )
     ds.radialgrid.setWallRadius(1.05 * ds.radialgrid.a)
 
@@ -138,7 +141,7 @@ def main():
     )
     parser.add_argument("--source", type=Path, default=None, help="Geometry source. This can be a DREAM package, a VMEC wout, or another provider-specific input.")
     parser.add_argument("--package", type=Path, default=None, help="Deprecated alias for --source when using provider=package.")
-    parser.add_argument("--provider", choices=("package", "desc", "vmec_jax"), default="package")
+    parser.add_argument("--provider", choices=("auto", "package", "desc", "vmec_jax"), default="auto")
     parser.add_argument("--cache-filename", type=Path, default=None, help="Optional precomputed cache or geometry package to load instead of rebuilding.")
     parser.add_argument("--dreami", type=Path, default=None)
     parser.add_argument("--settings", type=Path, default=None)
@@ -162,16 +165,19 @@ def main():
         source = DEFAULT_PACKAGE
 
     dreami = resolve_dreami(args.dreami)
-    build_settings(
+    provider = None if args.provider == "auto" else args.provider
+    ds = build_settings(
         source,
         settings_path,
         output_path,
         nr=args.nr,
-        provider=args.provider,
+        provider=provider,
         cache_filename=args.cache_filename,
     )
     print(f"Settings written to {settings_path}")
-    print(f"Geometry source: {source} ({args.provider})")
+    print(f"Geometry source: {source}")
+    print(f"Resolved provider: {ds.radialgrid.stellarator_provider}")
+    print(f"Source kind: {ds.radialgrid.num_stellarator.package.metadata.get('source_kind', 'unknown')}")
     if dreami is not None:
         print(f"DREAMi executable: {dreami}")
     if args.cache_filename is not None:

@@ -26,6 +26,7 @@ PACKAGE_V2 = ROOT / "stellarator_geometry_v2.h5"
 LEGACY_CACHE = ROOT / "legacy_numeric_stellarator_cache.h5"
 WOUT = ROOT / "wout_LandremanPaul2021_QA_lowres_reference.nc"
 KERNEL_SMOKE = pathlib.Path(__file__).resolve().parents[3] / "examples" / "stellarator" / "package_no_bootstrap_smoke.py"
+RECOMMENDED_WORKFLOW = pathlib.Path(__file__).resolve().parents[3] / "examples" / "stellarator" / "recommended_workflow.py"
 TEST_MINOR_RADIUS = 0.18
 
 
@@ -230,6 +231,27 @@ def test_flux_tube_evaluator():
     _assert(np.all(np.isfinite(out["|B|"])), "Flux-tube trace contains non-finite B values.")
 
 
+def test_recommended_workflow_example():
+    command = [
+        sys.executable,
+        str(RECOMMENDED_WORKFLOW),
+        "--provider",
+        "package",
+        "--source",
+        str(PACKAGE_V2),
+    ]
+
+    result = subprocess.run(
+        command,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, PYTHONPATH=str(pathlib.Path(__file__).resolve().parents[3] / "py")),
+    )
+    _assert("Step 1: Geometry package" in result.stdout, "Recommended workflow example did not report the geometry-package step.")
+    _assert("Step 3: Flux-tube evaluation" in result.stdout, "Recommended workflow example did not reach the flux-tube step.")
+
+
 def test_kernel_smoke():
     if DREAMI is None:
         return "skip"
@@ -309,6 +331,7 @@ def run(args):
         ("cache_readback", test_cache_readback),
         ("package_roundtrip", test_package_roundtrip),
         ("flux_tube_evaluator", test_flux_tube_evaluator),
+        ("recommended_workflow_example", test_recommended_workflow_example),
         ("kernel_smoke", test_kernel_smoke),
         ("kernel_package_legacy_parity", test_kernel_package_legacy_parity),
         ("desc_optional", test_desc_optional),
