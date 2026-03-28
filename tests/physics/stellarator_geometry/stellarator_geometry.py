@@ -124,6 +124,77 @@ def _run_smoke(source, *, provider="package", cache_filename=None):
                 "I_p": np.asarray(hf["eqsys/I_p"][:], dtype=np.float64),
             }
 
+def _load_radialgrid_from_source(source, *, provider=None, cache_filename=None, with_boozer=False):
+    rg = RadialGrid.RadialGrid(ttype=RadialGrid.TYPE_STELLARATOR)
+    rg.setNr(3)
+    rg.setMinorRadius(0.18)
+    rg.setWallRadius(0.18)
+
+    kwargs = {
+        "nr_equil": 4,
+        "ntheta_equil": 17,
+        "nphi_equil": 17,
+        "with_boozer": with_boozer,
+    }
+    if provider is not None:
+        kwargs["provider"] = provider
+    if cache_filename is not None:
+        kwargs["cache_filename"] = str(cache_filename)
+        kwargs["write_cache"] = True
+
+    rg.setStellarator(str(source), **kwargs)
+    return rg
+
+
+def _assert_geometry_parity(reference, candidate, *, context):
+    _assert(reference.num_stellarator.package.metadata["source_kind"] == candidate.num_stellarator.package.metadata["source_kind"], f"{context}: source_kind metadata drifted.")
+    _assert(reference.num_stellarator.package.metadata["provider"] == candidate.num_stellarator.package.metadata["provider"], f"{context}: provider metadata drifted.")
+    _assert(reference.num_stellarator.package.metadata["nfp"] == candidate.num_stellarator.package.metadata["nfp"], f"{context}: nfp metadata drifted.")
+    _assert(np.isclose(reference.num_stellarator.package.metadata["major_radius"], candidate.num_stellarator.package.metadata["major_radius"]), f"{context}: major radius metadata drifted.")
+    _assert(np.isclose(reference.num_stellarator.package.metadata["minor_radius"], candidate.num_stellarator.package.metadata["minor_radius"]), f"{context}: minor radius metadata drifted.")
+
+    for key in ("requested_ntheta_equil", "requested_nphi_equil", "resolved_ntheta_equil", "resolved_nphi_equil"):
+        if key in reference.num_stellarator.package.metadata or key in candidate.num_stellarator.package.metadata:
+            _assert(reference.num_stellarator.package.metadata.get(key) == candidate.num_stellarator.package.metadata.get(key), f"{context}: metadata field '{key}' drifted.")
+
+    for key in ("rho", "theta", "phi", "f_passing", "B_min", "B_max", "G", "I", "iota", "psi_T", "R", "Z", "B", "BdotGradPhi", "Jacobian", "g_tt", "g_tp", "lambda_t", "lambda_p"):
+        _assert(
+            np.allclose(getattr(reference, key), getattr(candidate, key), rtol=1e-13, atol=1e-13),
+            f"{context}: field '{key}' changed between provider-backed and package-backed loads.",
+        )
+
+    ref_boozer = reference.num_stellarator.package.boozer
+    cand_boozer = candidate.num_stellarator.package.boozer
+    if ref_boozer is None or cand_boozer is None:
+        _assert(ref_boozer is cand_boozer, f"{context}: Boozer block presence changed.")
+        return
+
+    _assert(ref_boozer.get("representation") == cand_boozer.get("representation"), f"{context}: Boozer representation drifted.")
+
+    if "booz_xform" in ref_boozer and "booz_xform" in cand_boozer:
+        for key in ("xm_b", "xn_b", "bmnc_b", "rmnc_b", "zmns_b", "iota", "s_b"):
+            _assert(
+                np.allclose(ref_boozer["booz_xform"][key], cand_boozer["booz_xform"][key], rtol=1e-13, atol=1e-13),
+                f"{context}: Boozer field '{key}' drifted.",
+            )
+    elif "vmec" in ref_boozer and "vmec" in cand_boozer:
+        for key in ("xm", "xn", "rmnc", "zmns", "bmnc"):
+            _assert(
+                np.allclose(ref_boozer["vmec"][key], cand_boozer["vmec"][key], rtol=1e-13, atol=1e-13),
+                f"{context}: VMEC spectral field '{key}' drifted.",
+            )
+        for key in ("s", "iota"):
+            _assert(
+                np.allclose(ref_boozer[key], cand_boozer[key], rtol=1e-13, atol=1e-13),
+                f"{context}: VMEC spectral profile '{key}' drifted.",
+            )
+    elif "desc" in ref_boozer and "desc" in cand_boozer:
+        for key in ("xm_b", "xn_b", "bmnc_b", "rmnc_b", "gmn_b", "iota", "s"):
+            _assert(
+                np.allclose(ref_boozer["desc"][key] if key in ref_boozer["desc"] else ref_boozer[key], cand_boozer["desc"][key] if key in cand_boozer["desc"] else cand_boozer[key], rtol=1e-13, atol=1e-13),
+                f"{context}: DESC Boozer field '{key}' drifted.",
+            )
+
 
 def _new_stellarator_radialgrid():
     rg = RadialGrid.RadialGrid(ttype=RadialGrid.TYPE_STELLARATOR)
@@ -296,6 +367,23 @@ def test_desc_optional():
     _assert(np.allclose(pkg.profiles["iota"], ref.profiles["iota"], rtol=1e-4, atol=1e-6), "DESC iota profile drifted from the reference package.")
 
 
+def test_desc_generated_package_frontend_parity_optional():
+    if not _desc_available():
+        return "skip"
+
+    with tempfile.TemporaryDirectory() as td:
+        package_path = pathlib.Path(td) / "desc-generated-package.h5"
+        provider_rg = _load_radialgrid_from_source(
+            WOUT,
+            provider="desc",
+            cache_filename=package_path,
+            with_boozer=True,
+        )
+        package_rg = _load_radialgrid_from_source(package_path, provider="package", with_boozer=True)
+
+    _assert_geometry_parity(provider_rg, package_rg, context="DESC package parity")
+
+
 def test_desc_flux_tube_optional():
     if not _desc_available():
         return "skip"
@@ -326,6 +414,23 @@ def test_vmec_optional():
     _assert(pkg.boozer is not None, "vmec_jax provider did not attach a spectral block.")
 
 
+def test_vmec_generated_package_frontend_parity_optional():
+    if not _vmec_jax_available():
+        return "skip"
+
+    with tempfile.TemporaryDirectory() as td:
+        package_path = pathlib.Path(td) / "vmec-generated-package.h5"
+        provider_rg = _load_radialgrid_from_source(
+            WOUT,
+            provider="vmec_jax",
+            cache_filename=package_path,
+            with_boozer=_booz_xform_available(),
+        )
+        package_rg = _load_radialgrid_from_source(package_path, provider="package", with_boozer=_booz_xform_available())
+
+    _assert_geometry_parity(provider_rg, package_rg, context="VMEC package parity")
+
+
 def test_vmec_boozer_optional():
     if not _vmec_jax_available() or not _booz_xform_available():
         return "skip"
@@ -352,8 +457,10 @@ def run(args):
         ("kernel_smoke", test_kernel_smoke),
         ("kernel_package_legacy_parity", test_kernel_package_legacy_parity),
         ("desc_optional", test_desc_optional),
+        ("desc_generated_package_frontend_parity_optional", test_desc_generated_package_frontend_parity_optional),
         ("desc_flux_tube_optional", test_desc_flux_tube_optional),
         ("vmec_optional", test_vmec_optional),
+        ("vmec_generated_package_frontend_parity_optional", test_vmec_generated_package_frontend_parity_optional),
         ("vmec_boozer_optional", test_vmec_boozer_optional),
     ]
 
