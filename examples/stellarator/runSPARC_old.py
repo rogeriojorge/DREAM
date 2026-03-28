@@ -1,7 +1,14 @@
+"""Legacy exploratory tokamak/SPARC script.
+
+This file predates the maintained stellarator provider/package workflow and is
+kept for historical reference only.
+"""
+
 import numpy as np
 import scipy.constants
 from scipy import interpolate
 import os, sys
+import warnings
 import SPARC as Tokamak
 
 import Exceptions
@@ -385,4 +392,9 @@ def runSimulation(nD_inj, nNe_inj, cD_inj=0, cNe_inj=0, isotropic=False, superth
 
     return do_TQ, do_CQ
 
-runSimulation(1e22, 1.8e20, isotropic=True, activated='DT', outputDir='.')
+if __name__ == "__main__":
+    warnings.warn(
+        "examples/stellarator/runSPARC_old.py is a legacy exploratory script and is not part of the maintained provider/package workflow.",
+        RuntimeWarning,
+    )
+    runSimulation(1e22, 1.8e20, isotropic=True, activated='DT', outputDir='.')
