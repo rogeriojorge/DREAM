@@ -7,8 +7,8 @@ import tempfile
 from pathlib import Path
 
 from DREAM import DREAMSettings
-import DREAM.Settings.RadialGrid as RadialGrid
 
+from common import configure_stellarator_geometry
 from package_no_bootstrap_smoke import build_settings, run_kernel
 
 
@@ -41,26 +41,21 @@ def main():
 
     source = args.source or _default_source(args.provider)
     provider = None if args.provider == "auto" else args.provider
+    cache_existed = args.cache is not None and args.cache.exists()
 
     ds = DREAMSettings()
-    ds.radialgrid.setType(RadialGrid.TYPE_STELLARATOR)
-    ds.radialgrid.setNr(args.nr - 1)
-    ds.radialgrid.setMinorRadius(0.18)
-    ds.radialgrid.setWallRadius(0.18)
-
-    kwargs = {
-        "nr_equil": args.nr,
-        "ntheta_equil": args.ntheta_equil,
-        "nphi_equil": args.nphi_equil,
-        "with_boozer": args.with_boozer,
-    }
-    if args.cache is not None:
-        kwargs["cache_filename"] = str(args.cache)
-        kwargs["write_cache"] = True
-    if provider is not None:
-        kwargs["provider"] = provider
-
-    ds.radialgrid.setStellarator(str(source), **kwargs)
+    configure_stellarator_geometry(
+        ds,
+        source=source,
+        provider=provider,
+        radial_nr=args.nr - 1,
+        nr_equil=args.nr,
+        ntheta_equil=args.ntheta_equil,
+        nphi_equil=args.nphi_equil,
+        with_boozer=args.with_boozer,
+        cache_filename=args.cache,
+        write_cache=args.cache is not None,
+    )
     package = ds.radialgrid.num_stellarator.package
     metadata = package.metadata
 
@@ -72,6 +67,7 @@ def main():
     print(f"  Boozer block: {'present' if package.boozer is not None else 'absent'}")
     if args.cache is not None:
         print(f"  Cache/package path: {args.cache}")
+        print(f"  Cache status: {'reused existing package' if cache_existed else 'rebuilt geometry package'}")
 
     print("Step 2: Geometry summary")
     print(f"  Major radius: {ds.radialgrid.R0:.8f} m")
