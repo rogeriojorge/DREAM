@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import importlib
+import shutil
 
 import numpy as np
 
@@ -23,7 +24,26 @@ PACKAGE_V2 = ROOT / "stellarator_geometry_v2.h5"
 LEGACY_CACHE = ROOT / "legacy_numeric_stellarator_cache.h5"
 WOUT = ROOT / "wout_LandremanPaul2021_QA_lowres_reference.nc"
 KERNEL_SMOKE = pathlib.Path(__file__).resolve().parents[3] / "examples" / "stellarator" / "package_no_bootstrap_smoke.py"
-DREAMI = pathlib.Path(__file__).resolve().parents[3] / "build-brewpetsc" / "iface" / "dreami"
+
+
+def _resolve_dreami():
+    candidates = []
+    dreampath = os.environ.get("DREAMPATH")
+    if dreampath:
+        candidates.append(pathlib.Path(dreampath) / "iface" / "dreami")
+    candidates.append(pathlib.Path(__file__).resolve().parents[3] / "build-brewpetsc" / "iface" / "dreami")
+    discovered = shutil.which("dreami")
+    if discovered:
+        candidates.append(pathlib.Path(discovered))
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+
+    return None
+
+
+DREAMI = _resolve_dreami()
 
 
 def _desc_available():
@@ -106,7 +126,7 @@ def test_flux_tube_evaluator():
 
 
 def test_kernel_smoke():
-    if not DREAMI.is_file():
+    if DREAMI is None:
         return "skip"
 
     with tempfile.TemporaryDirectory() as td:

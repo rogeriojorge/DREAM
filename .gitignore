@@ -1,4 +1,8 @@
 *.h5
+!examples/stellarator/data/legacy_numeric_stellarator_cache.h5
+!examples/stellarator/data/stellarator_geometry_desc.h5
+!examples/stellarator/data/stellarator_geometry_v1.h5
+!examples/stellarator/data/stellarator_geometry_v2.h5
 *.swp
 .cache
 .gdb_history

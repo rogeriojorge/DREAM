@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -23,6 +25,26 @@ import DREAM.Settings.RadialGrid as RadialGrid
 ROOT = Path(__file__).resolve().parent
 DEFAULT_PACKAGE = ROOT / "data" / "stellarator_geometry_v1.h5"
 DEFAULT_DREAMI = ROOT.parents[1] / "build-brewpetsc" / "iface" / "dreami"
+
+
+def resolve_dreami(explicit_path: Path | None = None) -> Path | None:
+    if explicit_path is not None:
+        return explicit_path
+
+    candidates = []
+    dreampath = os.environ.get("DREAMPATH")
+    if dreampath:
+        candidates.append(Path(dreampath) / "iface" / "dreami")
+    candidates.append(DEFAULT_DREAMI)
+    discovered = shutil.which("dreami")
+    if discovered:
+        candidates.append(Path(discovered))
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+
+    return None
 
 
 def build_settings(package: Path, settings_path: Path, output_path: Path, nr: int = 6) -> DREAMSettings:
@@ -90,6 +112,10 @@ def build_settings(package: Path, settings_path: Path, output_path: Path, nr: in
 
 
 def run_kernel(dreami: Path, settings_path: Path) -> float:
+    if dreami is None or not dreami.is_file():
+        raise FileNotFoundError(
+            "Unable to locate the DREAMi executable. Pass --dreami explicitly or set DREAMPATH to a built DREAM tree."
+        )
     t0 = time.perf_counter()
     subprocess.run([str(dreami), str(settings_path)], check=True)
     return time.perf_counter() - t0
@@ -98,7 +124,7 @@ def run_kernel(dreami: Path, settings_path: Path) -> float:
 def main():
     parser = argparse.ArgumentParser(description="Run a package-backed no-bootstrap DREAM stellarator smoke case.")
     parser.add_argument("--package", type=Path, default=DEFAULT_PACKAGE)
-    parser.add_argument("--dreami", type=Path, default=DEFAULT_DREAMI)
+    parser.add_argument("--dreami", type=Path, default=None)
     parser.add_argument("--settings", type=Path, default=None)
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--nr", type=int, default=6)
@@ -113,11 +139,14 @@ def main():
         settings_path = args.settings
         output_path = args.output
 
+    dreami = resolve_dreami(args.dreami)
     build_settings(args.package, settings_path, output_path, nr=args.nr)
     print(f"Settings written to {settings_path}")
+    if dreami is not None:
+        print(f"DREAMi executable: {dreami}")
 
     if args.run:
-        runtime = run_kernel(args.dreami, settings_path)
+        runtime = run_kernel(dreami, settings_path)
         print(f"Kernel execution completed in {runtime:.3f} s")
         print(f"Output written to {output_path}")
 
