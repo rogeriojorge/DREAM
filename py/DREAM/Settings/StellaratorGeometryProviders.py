@@ -227,6 +227,183 @@ def _build_vmec_spectral_block(source, with_boozer=False):
     return block
 
 
+def _build_desc_boozer_block(source, surfs, M_booz=None, N_booz=None):
+    eq, LinearGrid, source_kind, dependency_versions = _resolve_desc_equilibrium(source)
+    vmec_utils = import_optional("desc.vmec_utils")
+
+    if M_booz is None:
+        M_booz = max(2, 2 * int(eq.M))
+    if N_booz is None:
+        N_booz = max(2, 2 * int(eq.N))
+    surfs = max(int(surfs), 3)
+
+    s_full = np.linspace(0.0, 1.0, surfs)
+    hs = 1.0 / float(surfs - 1)
+    s_half = s_full[:-1] + 0.5 * hs
+    r_half = np.sqrt(s_half)
+
+    grid = LinearGrid(M=2 * int(M_booz), N=2 * int(N_booz), NFP=eq.NFP, rho=r_half, sym=False)
+
+    transforms = vmec_utils.get_transforms(
+        "|B|_mn_B",
+        obj=eq,
+        grid=grid,
+        M_booz=int(M_booz) - 1,
+        N_booz=int(N_booz),
+    )
+    basis = transforms["B"].basis
+    matrix, modes = vmec_utils.ptolemy_linear_transform(basis.modes)
+    num_modes = modes.shape[0] if eq.sym else int((modes.shape[0] + 1) / 2)
+
+    if eq.sym:
+        transforms_sin = vmec_utils.get_transforms(
+            "|B|_mn_B",
+            obj=eq,
+            grid=grid,
+            M_booz=int(M_booz) - 1,
+            N_booz=int(N_booz),
+            sym="sin",
+        )
+        basis_sin = transforms_sin["B"].basis
+        matrix_sin, modes_sin = vmec_utils.ptolemy_linear_transform(basis_sin.modes)
+    else:
+        transforms_sin = transforms
+        matrix_sin = matrix
+        modes_sin = modes
+
+    keys = [
+        "|B|",
+        "<|B|^2>",
+        "R",
+        "Z",
+        "sqrt(g)",
+        "rho",
+        "psi_r",
+        "G",
+        "I",
+        "iota",
+        "w_Boozer",
+        "nu",
+        "sqrt(g)_Boozer_DESC",
+    ]
+    data_keys = ["|B|_mn_B", "R_mn_B", "sqrt(g)_Boozer_mn"] + keys
+    data_keys = data_keys + ["Z_mn_B", "nu_B_mn"] if not eq.sym else data_keys
+    data_keys_sin = ["Z_mn_B", "nu_B_mn"]
+
+    data = eq.compute(data_keys, grid=grid, transforms=transforms)
+    if eq.sym:
+        data.pop("Boozer transform modes norm", None)
+        data_sin = eq.compute(data_keys_sin, grid=grid, transforms=transforms_sin, data=data)
+    else:
+        data_sin = data
+
+    m_neg_inds = np.where(transforms["B"].basis.modes[:, 1] < 0)
+
+    b_mn = np.asarray(data["|B|_mn_B"]).reshape((grid.num_rho, -1))
+    mask = np.zeros_like(b_mn, dtype=bool)
+    mask[:, m_neg_inds[0]] = True
+    b_mn = np.where(mask, -b_mn, b_mn)
+    B_mn = np.atleast_2d(matrix @ b_mn.T).T
+
+    r_mn = np.asarray(data["R_mn_B"]).reshape((grid.num_rho, -1))
+    r_mn = np.where(mask, -r_mn, r_mn)
+    R_mn = np.atleast_2d(matrix @ r_mn.T).T
+
+    sqrt_g_b_mn = (
+        np.asarray(data["sqrt(g)_Boozer_mn"]).reshape((grid.num_rho, -1))
+        / grid.compress(data["psi_r"])[:, None]
+    )
+    sqrt_g_b_mn = np.where(mask, -sqrt_g_b_mn, sqrt_g_b_mn)
+    Sqrt_g_B_mn = np.atleast_2d(matrix @ sqrt_g_b_mn.T).T
+
+    if eq.sym:
+        z_mn = np.asarray(data_sin["Z_mn_B"]).reshape((grid.num_rho, -1))
+        mask_sin = np.zeros_like(z_mn, dtype=bool)
+        m_neg_inds_sin = np.where(transforms_sin["B"].basis.modes[:, 1] < 0)
+        mask_sin[:, m_neg_inds_sin[0]] = True
+        z_mn = np.where(mask_sin, -z_mn, z_mn)
+        Z_mn = np.atleast_2d(matrix_sin @ z_mn.T).T
+
+        nu_b_mn = np.asarray(data_sin["nu_B_mn"]).reshape((grid.num_rho, -1))
+        nu_b_mn = np.where(mask_sin, -nu_b_mn, nu_b_mn)
+        nu_B_mn = np.atleast_2d(matrix_sin @ nu_b_mn.T).T
+    else:
+        z_mn = np.asarray(data["Z_mn_B"]).reshape((grid.num_rho, -1))
+        z_mn = np.where(mask, -z_mn, z_mn)
+        Z_mn = np.atleast_2d(matrix @ z_mn.T).T
+
+        nu_b_mn = np.asarray(data["nu_B_mn"]).reshape((grid.num_rho, -1))
+        nu_b_mn = np.where(mask, -nu_b_mn, nu_b_mn)
+        nu_B_mn = np.atleast_2d(matrix @ nu_b_mn.T).T
+
+    inds_cos = np.where(modes[:, 0] == 1)[0]
+    inds_sin = np.where(modes_sin[:, 0] == -1)[0] if eq.sym else np.where(modes[:, 0] == -1)[0]
+    if eq.sym:
+        modes_sin = np.insert(modes_sin, 0, [-1, 0, 0], axis=0)
+
+    mode_m = np.asarray(modes[:, 1] if eq.sym else modes[inds_cos, 1], dtype=np.int64)
+    mode_n = np.asarray((modes_sin[:, 2] if eq.sym else modes[inds_cos, 2]) * eq.NFP, dtype=np.int64)
+
+    rmnc = np.asarray(R_mn[:, inds_cos], dtype=np.float64)
+    bmnc = np.asarray(B_mn[:, inds_cos], dtype=np.float64)
+    gmnc = np.asarray(Sqrt_g_B_mn[:, inds_cos], dtype=np.float64)
+
+    if eq.sym:
+        zeros = np.zeros((rmnc.shape[0], mode_m.size), dtype=np.float64)
+        rmns = zeros.copy()
+        bmns = zeros.copy()
+        gmns = zeros.copy()
+        zmnc = zeros.copy()
+        zmns = np.insert(np.asarray(Z_mn[:, inds_sin], dtype=np.float64), 0, 0.0, axis=1)
+        pmnc = zeros.copy()
+        pmns = -np.insert(np.asarray(nu_B_mn[:, inds_sin], dtype=np.float64), 0, 0.0, axis=1)
+    else:
+        rmns = np.insert(np.asarray(R_mn[:, inds_sin], dtype=np.float64), 0, 0.0, axis=1)
+        bmns = np.insert(np.asarray(B_mn[:, inds_sin], dtype=np.float64), 0, 0.0, axis=1)
+        gmns = np.insert(np.asarray(Sqrt_g_B_mn[:, inds_sin], dtype=np.float64), 0, 0.0, axis=1)
+        zmnc = np.asarray(Z_mn[:, inds_cos], dtype=np.float64)
+        zmns = np.insert(np.asarray(Z_mn[:, inds_sin], dtype=np.float64), 0, 0.0, axis=1)
+        pmnc = -np.asarray(nu_B_mn[:, inds_cos], dtype=np.float64)
+        pmns = -np.insert(np.asarray(nu_B_mn[:, inds_sin], dtype=np.float64), 0, 0.0, axis=1)
+
+    return {
+        "representation": "desc_boozer",
+        "spectral_source": str(source),
+        "source_kind": source_kind,
+        "nfp": int(eq.NFP),
+        "s": np.asarray(s_half, dtype=np.float64),
+        "iota": -np.asarray(grid.compress(data["iota"]), dtype=np.float64),
+        "I": -np.asarray(grid.compress(data["I"]), dtype=np.float64),
+        "G": np.asarray(grid.compress(data["G"]), dtype=np.float64),
+        "dependency_versions": dependency_versions,
+        "desc": {
+            "sym": bool(eq.sym),
+            "xm_b": mode_m,
+            "xn_b": mode_n,
+            "bmnc_b": bmnc,
+            "bmns_b": bmns,
+            "rmnc_b": rmnc,
+            "rmns_b": rmns,
+            "zmns_b": zmns,
+            "zmnc_b": zmnc,
+            "gmn_b": gmnc,
+            "gmns_b": gmns,
+            "pmns_b": pmns,
+            "pmnc_b": pmnc,
+            "mboz": int(M_booz),
+            "nboz": int(N_booz),
+            "mnboz": int(num_modes),
+            "compute_surfs": np.arange(2, 2 + s_half.size, dtype=np.int64),
+            "transform_provenance": {
+                "source_path": str(source),
+                "surfs": int(surfs),
+                "M_booz": int(M_booz),
+                "N_booz": int(N_booz),
+            },
+        },
+    }
+
+
 def _fourier_eval(coeff_cos, coeff_sin, m, xn, theta, phi):
     phase = np.outer(m, theta) - np.outer(xn, phi)
     return np.sum(coeff_cos[:, None] * np.cos(phase) + coeff_sin[:, None] * np.sin(phase), axis=0)
@@ -381,14 +558,21 @@ class DescProvider(GeometryProvider):
 
     def build_package(self, nr, ntheta, nphi, with_boozer=False):
         package = _desc_sample_package(self.source, nr, ntheta, nphi, provider_name=self.name)
-        if with_boozer and self.source.endswith(".nc"):
+        if with_boozer:
             try:
+                spectral_block = _build_desc_boozer_block(
+                    self.source,
+                    surfs=nr,
+                    M_booz=max(4, int((ntheta - 1) / 2)),
+                    N_booz=max(4, int((nphi - 1) / 2)),
+                )
                 package.metadata["schema_version"] = GEOMETRY_PACKAGE_V2
-                package.boozer = _build_vmec_spectral_block(self.source, with_boozer=True)
+                package.metadata["dependency_versions"].update(spectral_block["dependency_versions"])
+                package.boozer = spectral_block
                 package.validate()
-            except ImportError as ex:
+            except Exception as ex:
                 warnings.warn(
-                    f"DescProvider: Unable to attach a spectral/Boozer block for '{self.source}' ({ex}).",
+                    f"DescProvider: Unable to attach a DESC Boozer block for '{self.source}' ({ex}).",
                     RuntimeWarning,
                 )
         return package
