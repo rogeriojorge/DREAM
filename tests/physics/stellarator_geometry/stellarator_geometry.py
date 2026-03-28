@@ -19,6 +19,7 @@ from DREAM.Settings.StellaratorGeometryProviders import DescProvider, VmecJaxPro
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[3] / "examples" / "stellarator" / "data"
+EXAMPLES_DIR = pathlib.Path(__file__).resolve().parents[3] / "examples" / "stellarator"
 PACKAGE_V1 = ROOT / "stellarator_geometry_v1.h5"
 PACKAGE_V2 = ROOT / "stellarator_geometry_v2.h5"
 LEGACY_CACHE = ROOT / "legacy_numeric_stellarator_cache.h5"
@@ -227,6 +228,20 @@ def test_recommended_workflow_example():
     _assert("Step 3: Flux-tube evaluation" in result.stdout, "Recommended workflow example did not reach the flux-tube step.")
 
 
+def test_examples_directory_readme():
+    readme = (EXAMPLES_DIR / "README.md").read_text()
+    _assert("Maintained provider/package workflow examples" in readme, "Examples README does not document the maintained workflow section.")
+    _assert("Legacy exploratory scripts" in readme, "Examples README does not document the legacy examples section.")
+    _assert("recommended_workflow.py" in readme, "Examples README does not point users to the maintained workflow entry point.")
+
+
+def test_legacy_scripts_guarded():
+    for name in ("runStellarator.py", "runSPARC_old.py"):
+        src = (EXAMPLES_DIR / name).read_text()
+        _assert('if __name__ == "__main__":' in src, f"{name} should guard its legacy execution path behind __main__.")
+        _assert("legacy" in src.lower(), f"{name} should clearly mark itself as legacy.")
+
+
 def test_kernel_smoke():
     if not DREAMI.is_file():
         return "skip"
@@ -312,6 +327,8 @@ def run(args):
         ("package_roundtrip", test_package_roundtrip),
         ("flux_tube_evaluator", test_flux_tube_evaluator),
         ("recommended_workflow_example", test_recommended_workflow_example),
+        ("examples_directory_readme", test_examples_directory_readme),
+        ("legacy_scripts_guarded", test_legacy_scripts_guarded),
         ("kernel_smoke", test_kernel_smoke),
         ("kernel_package_legacy_parity", test_kernel_package_legacy_parity),
         ("desc_optional", test_desc_optional),
