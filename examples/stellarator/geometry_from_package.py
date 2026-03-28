@@ -23,10 +23,13 @@ def main():
     ds.radialgrid.setMinorRadius(0.18)
     ds.radialgrid.setWallRadius(0.18)
     ds.radialgrid.setStellarator(str(args.package), provider="package")
+    metadata = ds.radialgrid.num_stellarator.package.metadata
 
     trace = ds.radialgrid.getStellaratorFluxTubeEvaluator().evaluate(s=0.5, alpha=0.0, nturns=1, npoints=64)
 
     print(f"Package: {args.package}")
+    print(f"Provider: {ds.radialgrid.stellarator_provider}")
+    print(f"Source kind: {metadata.get('source_kind', 'unknown')}")
     print(f"Sample grid: nrho={ds.radialgrid.rho.size}, ntheta={ds.radialgrid.theta.size}, nphi={ds.radialgrid.phi.size}")
     print(f"Flux-tube sample points: {trace['R'].size}")
     print(f"Mid-radius iota: {trace['iota']:.8f}")
