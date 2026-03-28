@@ -5,6 +5,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import warnings
 
 import h5py
 import numpy as np
@@ -106,6 +107,58 @@ def test_package_smoke():
     _assert(rg.B.size == rg.phi.size * rg.rho.size * rg.theta.size, "Unexpected sampled array size.")
     _assert(rg.f_passing.shape == (rg.rho.size,), "Unexpected passing-fraction profile shape.")
     rg.verifySettings()
+
+
+def test_provider_autodetect_package():
+    rg = RadialGrid.RadialGrid(ttype=RadialGrid.TYPE_STELLARATOR)
+    rg.setNr(3)
+    rg.setMinorRadius(0.18)
+    rg.setWallRadius(0.18)
+    rg.setStellarator(str(PACKAGE_V1))
+
+    _assert(rg.stellarator_provider == "package", "Geometry-package sources should auto-select provider='package'.")
+
+
+def test_legacy_argument_warnings():
+    rg = RadialGrid.RadialGrid(ttype=RadialGrid.TYPE_STELLARATOR)
+    rg.setNr(3)
+    rg.setMinorRadius(0.18)
+    rg.setWallRadius(0.18)
+
+    with tempfile.TemporaryDirectory() as td:
+        legacy_cache = pathlib.Path(td) / "legacy-cache.h5"
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            rg.setStellarator(
+                str(PACKAGE_V1),
+                provider="package",
+                datafilename=str(legacy_cache),
+            )
+
+    messages = [str(w.message) for w in caught]
+    _assert(any("datafilename" in message for message in messages), "Using 'datafilename' should emit a deprecation warning.")
+    _assert(rg.stellarator_cache_filename == str(legacy_cache), "Deprecated 'datafilename' did not map to 'cache_filename'.")
+
+
+def test_legacy_format_conflict():
+    rg = RadialGrid.RadialGrid(ttype=RadialGrid.TYPE_STELLARATOR)
+    rg.setNr(3)
+    rg.setMinorRadius(0.18)
+    rg.setWallRadius(0.18)
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            rg.setStellarator(
+                str(PACKAGE_V1),
+                provider="package",
+                format=RadialGrid.FILE_FORMAT_DESC,
+            )
+    except Exception as ex:
+        _assert("Conflicting stellarator source selection" in str(ex), "Unexpected error message for legacy format/provider conflict.")
+        return
+
+    raise AssertionError("Conflicting 'format' and 'provider' arguments should have failed.")
 
 
 def test_settings_roundtrip():
@@ -229,6 +282,9 @@ def test_vmec_boozer_optional():
 def run(args):
     tests = [
         ("package_smoke", test_package_smoke),
+        ("provider_autodetect_package", test_provider_autodetect_package),
+        ("legacy_argument_warnings", test_legacy_argument_warnings),
+        ("legacy_format_conflict", test_legacy_format_conflict),
         ("settings_roundtrip", test_settings_roundtrip),
         ("cache_readback", test_cache_readback),
         ("package_roundtrip", test_package_roundtrip),
