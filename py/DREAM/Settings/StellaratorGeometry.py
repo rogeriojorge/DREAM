@@ -315,12 +315,21 @@ class GeometryProvider(abc.ABC):
 
 
 def import_optional(module_name, package_root_env=None):
+    def _candidate_paths(root):
+        root = pathlib.Path(root)
+        candidates = []
+        if root.is_dir():
+            candidates.append(root)
+            src = root / "src"
+            if src.is_dir():
+                candidates.append(src)
+        return candidates
+
     if package_root_env:
         root = os.environ.get(package_root_env)
         if root:
-            root = pathlib.Path(root)
-            if root.is_dir():
-                root_str = str(root)
+            for candidate in _candidate_paths(root):
+                root_str = str(candidate)
                 if root_str not in sys.path:
                     sys.path.insert(0, root_str)
 
@@ -330,11 +339,10 @@ def import_optional(module_name, package_root_env=None):
         if package_root_env:
             root = os.environ.get(package_root_env)
             if root:
-                root = pathlib.Path(root)
-                if root.is_dir():
-                    sys.path.insert(0, str(root))
+                for candidate in _candidate_paths(root):
+                    sys.path.insert(0, str(candidate))
                     try:
                         return __import__(module_name, fromlist=["*"])
                     except ImportError:
-                        pass
+                        continue
         raise

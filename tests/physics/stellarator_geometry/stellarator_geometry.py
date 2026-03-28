@@ -8,6 +8,7 @@ import tempfile
 import importlib
 import shutil
 
+import h5py
 import numpy as np
 
 import dreamtests
@@ -65,9 +66,61 @@ def _vmec_jax_available():
         return False
 
 
+def _booz_xform_available():
+    try:
+        importlib.import_module("booz_xform_jax")
+        return True
+    except Exception:
+        return False
+
+
 def _assert(condition, message):
     if not condition:
         raise AssertionError(message)
+
+
+def _new_stellarator_radialgrid():
+def _run_smoke(source, *, provider="package", cache_filename=None):
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        settings = td / "settings.h5"
+        output = td / "output.h5"
+        command = [
+            sys.executable,
+            str(KERNEL_SMOKE),
+            "--source",
+            str(source),
+            "--provider",
+            provider,
+            "--dreami",
+            str(DREAMI),
+            "--settings",
+            str(settings),
+            "--output",
+            str(output),
+            "--run",
+        ]
+        if cache_filename is not None:
+            command.extend(["--cache-filename", str(cache_filename)])
+
+        subprocess.run(
+            command,
+            check=True,
+            env=dict(os.environ, PYTHONPATH=str(pathlib.Path(__file__).resolve().parents[3] / "py")),
+        )
+        _assert(output.is_file(), f"Kernel smoke test did not produce an output file for provider '{provider}'.")
+        with h5py.File(output, "r") as hf:
+            return {
+                "Bmax": np.asarray(hf["grid/geometry/Bmax"][:], dtype=np.float64),
+                "Bmin": np.asarray(hf["grid/geometry/Bmin"][:], dtype=np.float64),
+                "GR0": np.asarray(hf["grid/geometry/GR0"][:], dtype=np.float64),
+                "IR0": np.asarray(hf["grid/geometry/IR0"][:], dtype=np.float64),
+                "toroidalFlux": np.asarray(hf["grid/geometry/toroidalFlux"][:], dtype=np.float64),
+                "E_field": np.asarray(hf["eqsys/E_field"][:], dtype=np.float64),
+                "j_ohm": np.asarray(hf["eqsys/j_ohm"][:], dtype=np.float64),
+                "psi_p": np.asarray(hf["eqsys/psi_p"][:], dtype=np.float64),
+                "I_p": np.asarray(hf["eqsys/I_p"][:], dtype=np.float64),
+            }
 
 
 def _new_stellarator_radialgrid():
@@ -128,29 +181,21 @@ def test_flux_tube_evaluator():
 def test_kernel_smoke():
     if DREAMI is None:
         return "skip"
+    _run_smoke(PACKAGE_V1, provider="package")
 
-    with tempfile.TemporaryDirectory() as td:
-        td = pathlib.Path(td)
-        settings = td / "settings.h5"
-        output = td / "output.h5"
-        subprocess.run(
-            [
-                sys.executable,
-                str(KERNEL_SMOKE),
-                "--package",
-                str(PACKAGE_V1),
-                "--dreami",
-                str(DREAMI),
-                "--settings",
-                str(settings),
-                "--output",
-                str(output),
-                "--run",
-            ],
-            check=True,
-            env=dict(os.environ, PYTHONPATH=str(pathlib.Path(__file__).resolve().parents[3] / "py")),
+
+def test_kernel_package_legacy_parity():
+    if not DREAMI.is_file():
+        return "skip"
+
+    pkg = _run_smoke(PACKAGE_V1, provider="package")
+    legacy = _run_smoke(WOUT, provider="package", cache_filename=LEGACY_CACHE)
+
+    for key in pkg:
+        _assert(
+            np.allclose(pkg[key], legacy[key], rtol=1e-11, atol=1e-12),
+            f"Package-backed and legacy-cache-backed kernel outputs differ for '{key}'.",
         )
-        _assert(output.is_file(), "Kernel smoke test did not produce an output file.")
 
 
 def test_desc_optional():
@@ -173,6 +218,21 @@ def test_vmec_optional():
     _assert(pkg.boozer is not None, "vmec_jax provider did not attach a spectral block.")
 
 
+def test_vmec_boozer_optional():
+    if not _vmec_jax_available() or not _booz_xform_available():
+        return "skip"
+
+    pkg = VmecJaxProvider(str(WOUT)).build_package(nr=4, ntheta=17, nphi=17, with_boozer=True)
+    _assert(pkg.boozer is not None, "vmec_jax Boozer package did not attach a spectral block.")
+    _assert(pkg.boozer.get("representation") == "vmec_wout+booz_xform", "vmec_jax Boozer package did not record the Boozer representation.")
+    _assert("booz_xform" in pkg.boozer, "vmec_jax Boozer package did not include the booz_xform block.")
+
+    block = pkg.boozer["booz_xform"]
+    _assert(block["bmnc_b"].shape[1] == block["s_b"].size, "Boozer radial grid size does not match bmnc_b.")
+    _assert(block["compute_surfs"].size == block["s_b"].size, "Boozer surface list size does not match s_b.")
+    _assert(np.all(np.isfinite(block["bmnc_b"])), "Boozer bmnc_b contains non-finite values.")
+
+
 def run(args):
     tests = [
         ("package_smoke", test_package_smoke),
@@ -181,8 +241,10 @@ def run(args):
         ("package_roundtrip", test_package_roundtrip),
         ("flux_tube_evaluator", test_flux_tube_evaluator),
         ("kernel_smoke", test_kernel_smoke),
+        ("kernel_package_legacy_parity", test_kernel_package_legacy_parity),
         ("desc_optional", test_desc_optional),
         ("vmec_optional", test_vmec_optional),
+        ("vmec_boozer_optional", test_vmec_boozer_optional),
     ]
 
     success = True
