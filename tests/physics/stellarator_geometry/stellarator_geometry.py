@@ -24,6 +24,7 @@ PACKAGE_V2 = ROOT / "stellarator_geometry_v2.h5"
 LEGACY_CACHE = ROOT / "legacy_numeric_stellarator_cache.h5"
 WOUT = ROOT / "wout_LandremanPaul2021_QA_lowres_reference.nc"
 KERNEL_SMOKE = pathlib.Path(__file__).resolve().parents[3] / "examples" / "stellarator" / "package_no_bootstrap_smoke.py"
+TEST_MINOR_RADIUS = 0.18
 
 
 def _resolve_dreami():
@@ -69,11 +70,16 @@ def _assert(condition, message):
         raise AssertionError(message)
 
 
-def test_package_smoke():
+def _new_stellarator_radialgrid():
     rg = RadialGrid.RadialGrid(ttype=RadialGrid.TYPE_STELLARATOR)
     rg.setNr(3)
-    rg.setMinorRadius(0.18)
-    rg.setWallRadius(0.18)
+    rg.setMinorRadius(TEST_MINOR_RADIUS)
+    rg.setWallRadius(TEST_MINOR_RADIUS)
+    return rg
+
+
+def test_package_smoke():
+    rg = _new_stellarator_radialgrid()
     rg.setStellarator(str(PACKAGE_V1), provider="package")
 
     _assert(rg.B.size == rg.phi.size * rg.rho.size * rg.theta.size, "Unexpected sampled array size.")
@@ -82,10 +88,7 @@ def test_package_smoke():
 
 
 def test_settings_roundtrip():
-    rg = RadialGrid.RadialGrid(ttype=RadialGrid.TYPE_STELLARATOR)
-    rg.setNr(3)
-    rg.setMinorRadius(0.18)
-    rg.setWallRadius(0.18)
+    rg = _new_stellarator_radialgrid()
     rg.setStellarator(str(PACKAGE_V1), provider="package")
 
     data = rg.todict(verify=False)
@@ -98,10 +101,7 @@ def test_settings_roundtrip():
 
 
 def test_cache_readback():
-    rg = RadialGrid.RadialGrid(ttype=RadialGrid.TYPE_STELLARATOR)
-    rg.setNr(3)
-    rg.setMinorRadius(0.18)
-    rg.setWallRadius(0.18)
+    rg = _new_stellarator_radialgrid()
     rg.setStellarator(str(WOUT), provider="package", cache_filename=str(LEGACY_CACHE))
     rg.verifySettings()
     _assert(np.all(np.isfinite(rg.R)), "Legacy cache load produced non-finite R data.")
