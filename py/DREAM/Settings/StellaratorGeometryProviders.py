@@ -14,6 +14,8 @@ from .StellaratorGeometry import (
     import_optional,
 )
 
+_DESC_RESOLUTION_WARNINGS = set()
+
 
 def _dependency_versions(*packages):
     versions = {}
@@ -36,6 +38,34 @@ def _installed_version(*names):
 
 def _reshape_desc_samples(eq, grid, name):
     return np.asarray(eq.compute(name, grid=grid)[name], dtype=np.float64)
+
+
+def _effective_desc_resolution(eq, ntheta, nphi, provider_name="desc"):
+    requested_ntheta = int(ntheta)
+    requested_nphi = int(nphi)
+    min_ntheta = 2 * int(getattr(eq, "M_grid", getattr(eq, "M", 0))) + 1
+    min_nphi = 2 * int(getattr(eq, "N_grid", getattr(eq, "N", 0))) + 1
+    resolved_ntheta = max(requested_ntheta, min_ntheta)
+    resolved_nphi = max(requested_nphi, min_nphi)
+
+    if resolved_ntheta != requested_ntheta or resolved_nphi != requested_nphi:
+        warning_key = (
+            str(provider_name),
+            requested_ntheta,
+            requested_nphi,
+            resolved_ntheta,
+            resolved_nphi,
+        )
+        if warning_key not in _DESC_RESOLUTION_WARNINGS:
+            _DESC_RESOLUTION_WARNINGS.add(warning_key)
+            warnings.warn(
+                f"{provider_name}: Increasing equilibrium sample resolution from "
+                f"(ntheta={requested_ntheta}, nphi={requested_nphi}) to "
+                f"(ntheta={resolved_ntheta}, nphi={resolved_nphi}) to satisfy DESC grid requirements.",
+                RuntimeWarning,
+            )
+
+    return requested_ntheta, requested_nphi, resolved_ntheta, resolved_nphi
 
 
 def _resolve_desc_equilibrium(source):
@@ -63,11 +93,14 @@ def _resolve_desc_equilibrium(source):
 
 def _desc_sample_package(source, nr, ntheta, nphi, provider_name="desc"):
     eq, LinearGrid, source_kind, dependency_versions = _resolve_desc_equilibrium(source)
+    requested_ntheta, requested_nphi, resolved_ntheta, resolved_nphi = _effective_desc_resolution(
+        eq, ntheta, nphi, provider_name=provider_name
+    )
 
     grid = LinearGrid(
         L=int(nr - 1),
-        M=int((ntheta - 1) / 2),
-        N=int((nphi - 1) / 2),
+        M=int((resolved_ntheta - 1) / 2),
+        N=int((resolved_nphi - 1) / 2),
         endpoint=True,
         NFP=eq.NFP,
     )
@@ -130,6 +163,10 @@ def _desc_sample_package(source, nr, ntheta, nphi, provider_name="desc"):
         "minor_radius": a,
         "nfp": int(eq.NFP),
         "dependency_versions": dependency_versions,
+        "requested_ntheta_equil": requested_ntheta,
+        "requested_nphi_equil": requested_nphi,
+        "resolved_ntheta_equil": resolved_ntheta,
+        "resolved_nphi_equil": resolved_nphi,
     }
 
     return StellaratorGeometryPackage(metadata=metadata, grid={"rho": rho, "theta": theta, "phi": phi}, profiles=profiles, sampled=sampled)
