@@ -107,7 +107,9 @@ def run_kernel(dreami: Path, settings_path: Path) -> float:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run a package-backed no-bootstrap DREAM stellarator smoke case.")
+    parser = argparse.ArgumentParser(
+        description="Run a no-bootstrap DREAM stellarator smoke case from either a geometry package or a provider-backed source."
+    )
     parser.add_argument("--source", type=Path, default=None, help="Geometry source. This can be a DREAM package, a VMEC wout, or another provider-specific input.")
     parser.add_argument("--package", type=Path, default=None, help="Deprecated alias for --source when using provider=package.")
     parser.add_argument("--provider", choices=("package", "desc", "vmec_jax"), default="package")
