@@ -97,6 +97,44 @@ https://ft.nephy.chalmers.se/dream. LaTeX sources for documentation of the
 physics model and various mathematical details can be found under
 [doc/notes/](https://github.com/chalmersplasmatheory/DREAM/tree/master/doc/notes).
 
+## Stellarator Geometry Workflow
+The `stellarator` branch includes an experimental stellarator frontend built
+around a provider-based geometry API. The supported public interface is:
+
+```python
+ds.radialgrid.setStellarator(
+    source,
+    provider="package",   # or "desc", "vmec_jax"
+    cache_filename="stellarator_geometry.h5",
+    write_cache=True,
+    nr_equil=4,
+    ntheta_equil=17,
+    nphi_equil=17,
+    with_boozer=True,
+)
+```
+
+The current recommended workflow is:
+
+1. Build or load a `StellaratorGeometryPackage`.
+2. Inspect the packaged geometry and optional Boozer block in Python.
+3. Run no-bootstrap DREAM smoke cases from the packaged geometry.
+
+Available example entry points:
+
+- `examples/stellarator/geometry_from_package.py`: load a precomputed DREAM geometry package.
+- `examples/stellarator/geometry_from_vmec.py`: build a package from a VMEC `wout` file using `vmec_jax`.
+- `examples/stellarator/geometry_from_desc.py`: build a package through the DESC-backed frontend.
+- `examples/stellarator/package_no_bootstrap_smoke.py`: run a minimal no-bootstrap DREAM case from a geometry source or package.
+
+Legacy arguments are still accepted for compatibility:
+
+- `format=FILE_FORMAT_DESC`
+- `datafilename=...`
+
+but they are deprecated and will emit warnings. New code should use
+`provider=` and `cache_filename=` instead.
+
 ## Citing DREAM
 If you use DREAM in your scientific publications, please cite the
 [DREAM paper](https://doi.org/10.1016/j.cpc.2021.108098):

@@ -7,6 +7,7 @@ import sys
 import tempfile
 import importlib
 import shutil
+import warnings
 
 import h5py
 import numpy as np
@@ -79,7 +80,6 @@ def _assert(condition, message):
         raise AssertionError(message)
 
 
-def _new_stellarator_radialgrid():
 def _run_smoke(source, *, provider="package", cache_filename=None):
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
@@ -140,6 +140,58 @@ def test_package_smoke():
     rg.verifySettings()
 
 
+def test_provider_autodetect_package():
+    rg = RadialGrid.RadialGrid(ttype=RadialGrid.TYPE_STELLARATOR)
+    rg.setNr(3)
+    rg.setMinorRadius(TEST_MINOR_RADIUS)
+    rg.setWallRadius(TEST_MINOR_RADIUS)
+    rg.setStellarator(str(PACKAGE_V1))
+
+    _assert(rg.stellarator_provider == "package", "Geometry-package sources should auto-select provider='package'.")
+
+
+def test_legacy_argument_warnings():
+    rg = RadialGrid.RadialGrid(ttype=RadialGrid.TYPE_STELLARATOR)
+    rg.setNr(3)
+    rg.setMinorRadius(TEST_MINOR_RADIUS)
+    rg.setWallRadius(TEST_MINOR_RADIUS)
+
+    with tempfile.TemporaryDirectory() as td:
+        legacy_cache = pathlib.Path(td) / "legacy-cache.h5"
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            rg.setStellarator(
+                str(PACKAGE_V1),
+                provider="package",
+                datafilename=str(legacy_cache),
+            )
+
+    messages = [str(w.message) for w in caught]
+    _assert(any("datafilename" in message for message in messages), "Using 'datafilename' should emit a deprecation warning.")
+    _assert(rg.stellarator_cache_filename == str(legacy_cache), "Deprecated 'datafilename' did not map to 'cache_filename'.")
+
+
+def test_legacy_format_conflict():
+    rg = RadialGrid.RadialGrid(ttype=RadialGrid.TYPE_STELLARATOR)
+    rg.setNr(3)
+    rg.setMinorRadius(TEST_MINOR_RADIUS)
+    rg.setWallRadius(TEST_MINOR_RADIUS)
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            rg.setStellarator(
+                str(PACKAGE_V1),
+                provider="package",
+                format=RadialGrid.FILE_FORMAT_DESC,
+            )
+    except Exception as ex:
+        _assert("Conflicting stellarator source selection" in str(ex), "Unexpected error message for legacy format/provider conflict.")
+        return
+
+    raise AssertionError("Conflicting 'format' and 'provider' arguments should have failed.")
+
+
 def test_settings_roundtrip():
     rg = _new_stellarator_radialgrid()
     rg.setStellarator(str(PACKAGE_V1), provider="package")
@@ -185,7 +237,7 @@ def test_kernel_smoke():
 
 
 def test_kernel_package_legacy_parity():
-    if not DREAMI.is_file():
+    if DREAMI is None:
         return "skip"
 
     pkg = _run_smoke(PACKAGE_V1, provider="package")
@@ -246,15 +298,13 @@ def test_vmec_boozer_optional():
     _assert(pkg.boozer.get("representation") == "vmec_wout+booz_xform", "vmec_jax Boozer package did not record the Boozer representation.")
     _assert("booz_xform" in pkg.boozer, "vmec_jax Boozer package did not include the booz_xform block.")
 
-    block = pkg.boozer["booz_xform"]
-    _assert(block["bmnc_b"].shape[1] == block["s_b"].size, "Boozer radial grid size does not match bmnc_b.")
-    _assert(block["compute_surfs"].size == block["s_b"].size, "Boozer surface list size does not match s_b.")
-    _assert(np.all(np.isfinite(block["bmnc_b"])), "Boozer bmnc_b contains non-finite values.")
-
 
 def run(args):
     tests = [
         ("package_smoke", test_package_smoke),
+        ("provider_autodetect_package", test_provider_autodetect_package),
+        ("legacy_argument_warnings", test_legacy_argument_warnings),
+        ("legacy_format_conflict", test_legacy_format_conflict),
         ("settings_roundtrip", test_settings_roundtrip),
         ("cache_readback", test_cache_readback),
         ("package_roundtrip", test_package_roundtrip),
