@@ -297,6 +297,10 @@ def _build_desc_boozer_block(source, surfs, M_booz=None, N_booz=None):
     else:
         data_sin = data
 
+    # DESC's Boozer output is expressed on its internal mode ordering. DREAM keeps
+    # a VMEC-like cosine/sine split, so we first flip the negative-m entries and
+    # then apply the Ptolemy transform to export a consistent (m, n) coefficient
+    # layout across the VMEC and DESC provider paths.
     m_neg_inds = np.where(transforms["B"].basis.modes[:, 1] < 0)
 
     b_mn = np.asarray(data["|B|_mn_B"]).reshape((grid.num_rho, -1))
@@ -336,6 +340,9 @@ def _build_desc_boozer_block(source, surfs, M_booz=None, N_booz=None):
         nu_b_mn = np.where(mask, -nu_b_mn, nu_b_mn)
         nu_B_mn = np.atleast_2d(matrix @ nu_b_mn.T).T
 
+    # For symmetric equilibria DESC exposes the sine-like Z/nu sector separately.
+    # DREAM expects matching cosine/sine tables for every stored field, so the zero
+    # inserts below keep the exported arrays shape-compatible with the VMEC path.
     inds_cos = np.where(modes[:, 0] == 1)[0]
     inds_sin = np.where(modes_sin[:, 0] == -1)[0] if eq.sym else np.where(modes[:, 0] == -1)[0]
     if eq.sym:

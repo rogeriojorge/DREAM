@@ -90,6 +90,9 @@ class FluxTubeEvaluator:
 
     def _fieldline_rhs(self, surface_index, theta, phi):
         if self.kind == "boozer_fourier":
+            # In Boozer coordinates the contravariant field-line slope is simply
+            # dtheta/dzeta = iota on a given surface, so the traced line can be
+            # advanced directly without reconstructing the VMEC bsupu/bsupv pair.
             return float(self.iota[min(surface_index, self.iota.size - 1)])
 
         bsupu = _evaluate_fourier(
@@ -142,6 +145,9 @@ class FluxTubeEvaluator:
         sqrtg = _evaluate_fourier(gmnc, gmns, self.m, self.xn, theta, phi)
 
         with np.errstate(divide="ignore", invalid="ignore"):
+            # For the exported Boozer block we reconstruct the contravariant field
+            # components from sqrt(g) so the evaluator reports the same primitive
+            # quantities regardless of whether the package came from VMEC or DESC.
             bsupv = np.divide(1.0, sqrtg, out=np.zeros_like(sqrtg), where=np.abs(sqrtg) > 0)
             bsupu = iota * bsupv
 
