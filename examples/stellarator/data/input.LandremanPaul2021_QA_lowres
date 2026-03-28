@@ -33,7 +33,7 @@
   NCURR = 1
   PIOTA_TYPE = 'power_series'
   PCURR_TYPE = 'power_series'
-!----- Axis Parameters ----- 
+!----- Axis Parameters -----
   RAXIS_CC = 0
   ZAXIS_CS = 0
 !----- Boundary Parameters -----

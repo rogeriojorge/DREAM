@@ -249,7 +249,7 @@ def _fourier_eval_dphi(coeff_cos, coeff_sin, m, xn, theta, phi):
 
 
 def _vmec_sample_package(source, ntheta, nphi, provider_name="vmec_jax"):
-    _, wout_mod = _import_vmec_jax_stack()
+    _, wout_mod, _ = _import_vmec_jax_stack()
     wout = wout_mod.read_wout(source)
 
     s = np.linspace(0.0, 1.0, int(wout.ns))
