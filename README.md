@@ -126,6 +126,7 @@ Available example entry points:
 - `examples/stellarator/geometry_from_vmec.py`: build a package from a VMEC `wout` file using `vmec_jax`.
 - `examples/stellarator/geometry_from_desc.py`: build a package through the DESC-backed frontend.
 - `examples/stellarator/recommended_workflow.py`: recommended end-to-end workflow that loads or builds a package, inspects it, evaluates a flux tube, and can run the no-bootstrap smoke case.
+- `examples/stellarator/compare_geometry.py`: compare two geometry sources or packages and print a compact parity report.
 - `examples/stellarator/package_no_bootstrap_smoke.py`: run a minimal no-bootstrap DREAM case from a geometry source or package.
 
 The example directory also contains older exploratory scripts. Those are now
@@ -138,6 +139,7 @@ Typical workflows:
 python examples/stellarator/recommended_workflow.py
 python examples/stellarator/recommended_workflow.py --provider vmec_jax --with-boozer --cache /tmp/stellarator_geometry_vmec.h5
 python examples/stellarator/recommended_workflow.py --provider package --source examples/stellarator/data/stellarator_geometry_v2.h5 --run-smoke
+python examples/stellarator/compare_geometry.py --source-a examples/stellarator/data/stellarator_geometry_v2.h5 --provider-a package --source-b examples/stellarator/data/stellarator_geometry_v2.h5 --provider-b package
 ```
 
 Legacy arguments are still accepted for compatibility:
