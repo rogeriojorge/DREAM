@@ -25,13 +25,24 @@ DEFAULT_PACKAGE = ROOT / "data" / "stellarator_geometry_v1.h5"
 DEFAULT_DREAMI = ROOT.parents[1] / "build-brewpetsc" / "iface" / "dreami"
 
 
-def build_settings(package: Path, settings_path: Path, output_path: Path, nr: int = 6) -> DREAMSettings:
+def build_settings(
+    source: Path,
+    settings_path: Path,
+    output_path: Path,
+    nr: int = 6,
+    provider: str = "package",
+    cache_filename: Path | None = None,
+) -> DREAMSettings:
     ds = DREAMSettings()
 
     ds.radialgrid.setNr(nr)
     ds.radialgrid.setNtheta(17)
     ds.radialgrid.setNphi(17)
-    ds.radialgrid.setStellarator(str(package), provider="package")
+    ds.radialgrid.setStellarator(
+        str(source),
+        provider=provider,
+        cache_filename=str(cache_filename) if cache_filename is not None else None,
+    )
     ds.radialgrid.setWallRadius(1.05 * ds.radialgrid.a)
 
     a = ds.radialgrid.a
@@ -97,7 +108,10 @@ def run_kernel(dreami: Path, settings_path: Path) -> float:
 
 def main():
     parser = argparse.ArgumentParser(description="Run a package-backed no-bootstrap DREAM stellarator smoke case.")
-    parser.add_argument("--package", type=Path, default=DEFAULT_PACKAGE)
+    parser.add_argument("--source", type=Path, default=None, help="Geometry source. This can be a DREAM package, a VMEC wout, or another provider-specific input.")
+    parser.add_argument("--package", type=Path, default=None, help="Deprecated alias for --source when using provider=package.")
+    parser.add_argument("--provider", choices=("package", "desc", "vmec_jax"), default="package")
+    parser.add_argument("--cache-filename", type=Path, default=None, help="Optional precomputed cache or geometry package to load instead of rebuilding.")
     parser.add_argument("--dreami", type=Path, default=DEFAULT_DREAMI)
     parser.add_argument("--settings", type=Path, default=None)
     parser.add_argument("--output", type=Path, default=None)
@@ -113,8 +127,24 @@ def main():
         settings_path = args.settings
         output_path = args.output
 
-    build_settings(args.package, settings_path, output_path, nr=args.nr)
+    source = args.source
+    if source is None and args.package is not None:
+        source = args.package
+    if source is None:
+        source = DEFAULT_PACKAGE
+
+    build_settings(
+        source,
+        settings_path,
+        output_path,
+        nr=args.nr,
+        provider=args.provider,
+        cache_filename=args.cache_filename,
+    )
     print(f"Settings written to {settings_path}")
+    print(f"Geometry source: {source} ({args.provider})")
+    if args.cache_filename is not None:
+        print(f"Cache filename: {args.cache_filename}")
 
     if args.run:
         runtime = run_kernel(args.dreami, settings_path)
