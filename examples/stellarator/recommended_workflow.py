@@ -9,15 +9,12 @@ from pathlib import Path
 from DREAM import DREAMSettings
 
 from common import configure_stellarator_geometry
-from package_no_bootstrap_smoke import build_settings, run_kernel
+from package_no_bootstrap_smoke import build_settings, resolve_dreami, run_kernel
 
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_PACKAGE = ROOT / "data" / "stellarator_geometry_v2.h5"
 DEFAULT_WOUT = ROOT / "data" / "wout_LandremanPaul2021_QA_lowres_reference.nc"
-DEFAULT_DREAMI = ROOT.parents[1] / "build-brewpetsc" / "iface" / "dreami"
-
-
 def _default_source(provider: str) -> Path:
     if provider in ("desc", "vmec_jax"):
         return DEFAULT_WOUT
@@ -36,11 +33,12 @@ def main():
     parser.add_argument("--nphi-equil", type=int, default=17)
     parser.add_argument("--with-boozer", action="store_true", help="Request a Boozer-capable package when the provider supports it.")
     parser.add_argument("--run-smoke", action="store_true", help="Also run the minimal no-bootstrap DREAM smoke case.")
-    parser.add_argument("--dreami", type=Path, default=DEFAULT_DREAMI)
+    parser.add_argument("--dreami", type=Path, default=None)
     args = parser.parse_args()
 
     source = args.source or _default_source(args.provider)
     provider = None if args.provider == "auto" else args.provider
+    dreami = resolve_dreami(args.dreami)
     cache_existed = args.cache is not None and args.cache.exists()
 
     ds = DREAMSettings()
@@ -105,11 +103,12 @@ def main():
                 provider=ds.radialgrid.stellarator_provider,
                 cache_filename=args.cache,
             )
-            runtime = run_kernel(args.dreami, settings_path)
+            runtime = run_kernel(dreami, settings_path)
             print("Step 4: No-bootstrap smoke run")
             print(f"  Smoke provider: {smoke_ds.radialgrid.stellarator_provider}")
             print(f"  Settings file: {settings_path}")
             print(f"  Output file: {output_path}")
+            print(f"  DREAMi executable: {dreami}")
             print(f"  Kernel runtime: {runtime:.3f} s")
 
 
