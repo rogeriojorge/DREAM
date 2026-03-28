@@ -98,8 +98,10 @@ physics model and various mathematical details can be found under
 [doc/notes/](https://github.com/chalmersplasmatheory/DREAM/tree/master/doc/notes).
 
 ## Stellarator Geometry Workflow
-The `stellarator` branch includes an experimental stellarator frontend built
-around a provider-based geometry API. The supported public interface is:
+The `stellarator` branch includes an experimental stellarator geometry workflow
+built around a provider-based geometry API. It is intended to make VMEC/DESC
+geometry loading, caching, and inspection reproducible while preserving the
+existing reduced DREAM kernel physics. The supported public interface is:
 
 ```python
 ds.radialgrid.setStellarator(
@@ -119,6 +121,10 @@ The current recommended workflow is:
 1. Build or load a `StellaratorGeometryPackage`.
 2. Inspect the packaged geometry and optional Boozer block in Python.
 3. Run no-bootstrap DREAM smoke cases from the packaged geometry.
+
+This workflow does not introduce a new native 3D stellarator kernel. Its role
+is to provide a clean geometry contract for the existing stellarator-capable
+frontend and to make that geometry easier to validate, reload, and compare.
 
 Available example entry points:
 
