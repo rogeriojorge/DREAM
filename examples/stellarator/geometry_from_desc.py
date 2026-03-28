@@ -38,12 +38,21 @@ def main():
             nphi_equil=args.nphi_equil,
             with_boozer=args.with_boozer,
         )
+        metadata = ds.radialgrid.num_stellarator.package.metadata
 
         print(f"Provider: {ds.radialgrid.stellarator_provider}")
         print(f"Geometry cache: {args.cache}")
         print(f"Major radius: {ds.radialgrid.R0:.8f} m")
         print(f"Minor radius: {ds.radialgrid.a:.8f} m")
         print(f"Sample grid: nrho={ds.radialgrid.rho.size}, ntheta={ds.radialgrid.theta.size}, nphi={ds.radialgrid.phi.size}")
+        requested_ntheta = metadata.get("requested_ntheta_equil")
+        requested_nphi = metadata.get("requested_nphi_equil")
+        resolved_ntheta = metadata.get("resolved_ntheta_equil")
+        resolved_nphi = metadata.get("resolved_nphi_equil")
+        if requested_ntheta is not None and requested_nphi is not None:
+            print(f"Requested equilibrium grid: ntheta={requested_ntheta}, nphi={requested_nphi}")
+        if resolved_ntheta is not None and resolved_nphi is not None:
+            print(f"Resolved equilibrium grid: ntheta={resolved_ntheta}, nphi={resolved_nphi}")
         if args.with_boozer:
             trace = ds.radialgrid.getStellaratorFluxTubeEvaluator().evaluate(s=0.5, alpha=0.0, nturns=1, npoints=64)
             print(f"Flux-tube sample points: {trace['R'].size}")
