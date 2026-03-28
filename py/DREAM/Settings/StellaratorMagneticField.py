@@ -87,11 +87,28 @@ class StellaratorMagneticField(NumericalMagneticField):
             self.package = StellaratorGeometryPackage.read(self.filename)
 
         if self.package is not None:
-            self._hydrate_from_package(self.package)
-        else:
+            if not self._package_satisfies_request(self.package):
+                self.package = None
+            else:
+                self._hydrate_from_package(self.package)
+
+        if self.package is None:
             self.provider = self._make_provider(self.provider_name)
+        else:
+            self._hydrate_from_package(self.package)
 
         super().__init__(self.a if self.a is not None else 0.0, self.R0 if self.R0 is not None else 0.0)
+
+    def _package_satisfies_request(self, package):
+        if not self.with_boozer:
+            return True
+        if package.boozer is None:
+            return False
+        if self.provider_name == PROVIDER_DESC:
+            return package.boozer.get("representation") == "desc_boozer"
+        if self.provider_name == PROVIDER_VMEC_JAX:
+            return "vmec" in package.boozer
+        return True
 
     def _make_provider(self, provider_name):
         provider_name = str(provider_name).lower()
