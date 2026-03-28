@@ -5,6 +5,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import importlib
 
 import numpy as np
 
@@ -35,8 +36,8 @@ def _desc_available():
 
 def _vmec_jax_available():
     try:
-        if "VMEC_JAX_ROOT" not in os.environ:
-            return False
+        importlib.import_module("vmec_jax")
+        importlib.import_module("vmec_jax.wout")
         VmecJaxProvider(str(WOUT)).build_package(nr=4, ntheta=17, nphi=17, with_boozer=False)
         return True
     except Exception:
