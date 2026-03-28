@@ -19,6 +19,7 @@ def main():
     parser.add_argument("--nr", type=int, default=4)
     parser.add_argument("--ntheta-equil", type=int, default=17)
     parser.add_argument("--nphi-equil", type=int, default=17)
+    parser.add_argument("--with-boozer", action="store_true")
     args = parser.parse_args()
 
     try:
@@ -35,6 +36,7 @@ def main():
             nr_equil=args.nr,
             ntheta_equil=args.ntheta_equil,
             nphi_equil=args.nphi_equil,
+            with_boozer=args.with_boozer,
         )
 
         print(f"Provider: {ds.radialgrid.stellarator_provider}")
@@ -42,6 +44,10 @@ def main():
         print(f"Major radius: {ds.radialgrid.R0:.8f} m")
         print(f"Minor radius: {ds.radialgrid.a:.8f} m")
         print(f"Sample grid: nrho={ds.radialgrid.rho.size}, ntheta={ds.radialgrid.theta.size}, nphi={ds.radialgrid.phi.size}")
+        if args.with_boozer:
+            trace = ds.radialgrid.getStellaratorFluxTubeEvaluator().evaluate(s=0.5, alpha=0.0, nturns=1, npoints=64)
+            print(f"Flux-tube sample points: {trace['R'].size}")
+            print(f"Mid-radius iota: {trace['iota']:.8f}")
     except Exception as ex:
         print("DESC frontend smoke failed.")
         print(ex)

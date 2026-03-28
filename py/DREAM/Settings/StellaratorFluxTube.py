@@ -27,18 +27,57 @@ class FluxTubeEvaluator:
         else:
             self.package = StellaratorGeometryPackage.read(geometry_package)
 
-        if self.package.boozer is None or "vmec" not in self.package.boozer:
+        if self.package.boozer is None:
             raise DREAMException(
                 "FluxTubeEvaluator: This geometry package does not contain the spectral/Boozer-capable block required for field-line evaluation."
             )
 
-        self.vmec = self.package.boozer["vmec"]
+        self.representation = str(self.package.boozer.get("representation", ""))
         self.s_grid = np.asarray(self.package.boozer.get("s", self.package.profiles["s"]), dtype=np.float64)
         self.iota = np.asarray(self.package.boozer.get("iota", self.package.profiles["iota"]), dtype=np.float64)
-        self.m = np.asarray(self.vmec["xm"], dtype=np.float64)
-        self.xn = np.asarray(self.vmec["xn"], dtype=np.float64)
-        self.m_nyq = np.asarray(self.vmec["xm_nyq"], dtype=np.float64)
-        self.xn_nyq = np.asarray(self.vmec["xn_nyq"], dtype=np.float64)
+        if self.representation == "vmec_wout+booz_xform" and "booz_xform" in self.package.boozer:
+            self.kind = "boozer_fourier"
+            self.boozer_fourier = self.package.boozer["booz_xform"]
+            self.s_grid = np.asarray(self.boozer_fourier.get("s_b", self.s_grid), dtype=np.float64)
+            self.iota = np.asarray(self.boozer_fourier.get("iota", self.iota), dtype=np.float64)
+            self.m = np.asarray(self.boozer_fourier["xm_b"], dtype=np.float64)
+            self.xn = np.asarray(self.boozer_fourier["xn_b"], dtype=np.float64)
+            self._boozer_keys = {
+                "rmnc": "rmnc_b",
+                "rmns": None,
+                "zmns": "zmns_b",
+                "zmnc": None,
+                "bmnc": "bmnc_b",
+                "bmns": None,
+                "gmnc": "gmnc_b",
+                "gmns": None,
+            }
+        elif "vmec" in self.package.boozer:
+            self.kind = "vmec"
+            self.vmec = self.package.boozer["vmec"]
+            self.m = np.asarray(self.vmec["xm"], dtype=np.float64)
+            self.xn = np.asarray(self.vmec["xn"], dtype=np.float64)
+            self.m_nyq = np.asarray(self.vmec["xm_nyq"], dtype=np.float64)
+            self.xn_nyq = np.asarray(self.vmec["xn_nyq"], dtype=np.float64)
+        elif "desc" in self.package.boozer:
+            self.kind = "boozer_fourier"
+            self.boozer_fourier = self.package.boozer["desc"]
+            self.m = np.asarray(self.boozer_fourier["xm_b"], dtype=np.float64)
+            self.xn = np.asarray(self.boozer_fourier["xn_b"], dtype=np.float64)
+            self._boozer_keys = {
+                "rmnc": "rmnc_b",
+                "rmns": "rmns_b",
+                "zmns": "zmns_b",
+                "zmnc": "zmnc_b",
+                "bmnc": "bmnc_b",
+                "bmns": "bmns_b",
+                "gmnc": "gmn_b",
+                "gmns": "gmns_b",
+            }
+        else:
+            raise DREAMException(
+                "FluxTubeEvaluator: Unsupported spectral block. Expected either a VMEC-style or DESC Boozer-style representation."
+            )
 
     def _surface_index(self, s=None, rho=None):
         if s is None and rho is None:
@@ -50,6 +89,9 @@ class FluxTubeEvaluator:
         return int(np.argmin(np.abs(self.s_grid - float(s))))
 
     def _fieldline_rhs(self, surface_index, theta, phi):
+        if self.kind == "boozer_fourier":
+            return float(self.iota[min(surface_index, self.iota.size - 1)])
+
         bsupu = _evaluate_fourier(
             np.asarray(self.vmec["bsupumnc"][surface_index], dtype=np.float64),
             np.asarray(self.vmec["bsupumns"][surface_index], dtype=np.float64),
@@ -72,6 +114,57 @@ class FluxTubeEvaluator:
 
         return bsupu / bsupv
 
+    def _surface_coefficients(self, key, surface_index):
+        name = self._boozer_keys.get(key)
+        if name is None:
+            return np.zeros_like(self.m, dtype=np.float64)
+        data = np.asarray(self.boozer_fourier[name], dtype=np.float64)
+        if data.ndim == 1:
+            return data
+        if data.shape[0] == self.m.size:
+            return np.asarray(data[:, surface_index], dtype=np.float64)
+        return np.asarray(data[surface_index], dtype=np.float64)
+
+    def _evaluate_boozer_surface(self, surface_index, theta, phi):
+        rmnc = self._surface_coefficients("rmnc", surface_index)
+        rmns = self._surface_coefficients("rmns", surface_index)
+        zmns = self._surface_coefficients("zmns", surface_index)
+        zmnc = self._surface_coefficients("zmnc", surface_index)
+        bmnc = self._surface_coefficients("bmnc", surface_index)
+        bmns = self._surface_coefficients("bmns", surface_index)
+        gmnc = self._surface_coefficients("gmnc", surface_index)
+        gmns = self._surface_coefficients("gmns", surface_index)
+        iota = float(self.iota[min(surface_index, self.iota.size - 1)])
+
+        R = _evaluate_fourier(rmnc, rmns, self.m, self.xn, theta, phi)
+        Z = _evaluate_fourier(zmnc, zmns, self.m, self.xn, theta, phi)
+        B = _evaluate_fourier(bmnc, bmns, self.m, self.xn, theta, phi)
+        sqrtg = _evaluate_fourier(gmnc, gmns, self.m, self.xn, theta, phi)
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            bsupv = np.divide(1.0, sqrtg, out=np.zeros_like(sqrtg), where=np.abs(sqrtg) > 0)
+            bsupu = iota * bsupv
+
+        R_theta = _evaluate_fourier_dtheta(rmnc, rmns, self.m, self.xn, theta, phi)
+        Z_theta = _evaluate_fourier_dtheta(zmnc, zmns, self.m, self.xn, theta, phi)
+        R_phi = _evaluate_fourier_dphi(rmnc, rmns, self.m, self.xn, theta, phi)
+        Z_phi = _evaluate_fourier_dphi(zmnc, zmns, self.m, self.xn, theta, phi)
+        g_tt = R_theta**2 + Z_theta**2
+        g_tp = R_theta * R_phi + Z_theta * Z_phi
+
+        return {
+            "R": R,
+            "Z": Z,
+            "|B|": B,
+            "sqrt(g)": sqrtg,
+            "bsupu": bsupu,
+            "bsupv": bsupv,
+            "g_tt": g_tt,
+            "g_tp": g_tp,
+            "lambda_t": np.zeros_like(theta),
+            "lambda_p": np.zeros_like(theta),
+        }
+
     def evaluate(self, *, s=None, rho=None, alpha=0.0, nturns=1, npoints=256):
         surface_index = self._surface_index(s=s, rho=rho)
         phi_end = float(nturns) * 2.0 * np.pi / float(self.package.nfp)
@@ -89,6 +182,27 @@ class FluxTubeEvaluator:
             k3 = self._fieldline_rhs(surface_index, th + 0.5 * h * k2, ph + 0.5 * h)
             k4 = self._fieldline_rhs(surface_index, th + h * k3, ph + h)
             theta[i] = th + (h / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+
+        if self.kind == "boozer_fourier":
+            values = self._evaluate_boozer_surface(surface_index, theta, phi)
+            return {
+                "surface_index": surface_index,
+                "s": float(self.s_grid[surface_index]),
+                "rho": float(np.sqrt(max(self.s_grid[surface_index], 0.0)) * self.package.a),
+                "theta": theta,
+                "zeta": phi,
+                "R": values["R"],
+                "Z": values["Z"],
+                "|B|": values["|B|"],
+                "sqrt(g)": values["sqrt(g)"],
+                "bsupu": values["bsupu"],
+                "bsupv": values["bsupv"],
+                "g_tt": values["g_tt"],
+                "g_tp": values["g_tp"],
+                "lambda_t": values["lambda_t"],
+                "lambda_p": values["lambda_p"],
+                "iota": float(self.iota[min(surface_index, self.iota.size - 1)]),
+            }
 
         rmnc = np.asarray(self.vmec["rmnc"][surface_index], dtype=np.float64)
         rmns = np.asarray(self.vmec["rmns"][surface_index], dtype=np.float64)
@@ -126,7 +240,7 @@ class FluxTubeEvaluator:
         return {
             "surface_index": surface_index,
             "s": float(self.s_grid[surface_index]),
-            "rho": float(self.package.grid["rho"][min(surface_index, self.package.grid["rho"].size - 1)]),
+            "rho": float(np.sqrt(max(self.s_grid[surface_index], 0.0)) * self.package.a),
             "theta": theta,
             "zeta": phi,
             "R": R,

@@ -181,6 +181,25 @@ def test_desc_optional():
     _assert(np.allclose(pkg.profiles["iota"], ref.profiles["iota"], rtol=1e-4, atol=1e-6), "DESC iota profile drifted from the reference package.")
 
 
+def test_desc_flux_tube_optional():
+    if not _desc_available():
+        return "skip"
+
+    desc_pkg = DescProvider(str(WOUT)).build_package(nr=4, ntheta=17, nphi=17, with_boozer=True)
+    vmec_pkg = VmecJaxProvider(str(WOUT)).build_package(nr=4, ntheta=17, nphi=17, with_boozer=True)
+
+    _assert(desc_pkg.boozer is not None and desc_pkg.boozer.get("representation") == "desc_boozer", "DESC provider did not attach a DESC Boozer block.")
+
+    desc_trace = FluxTubeEvaluator(desc_pkg).evaluate(s=0.5, alpha=0.0, nturns=1, npoints=64)
+    vmec_trace = FluxTubeEvaluator(vmec_pkg).evaluate(s=0.5, alpha=0.0, nturns=1, npoints=64)
+
+    for key in ("R", "Z", "|B|", "sqrt(g)"):
+        _assert(
+            np.allclose(desc_trace[key], vmec_trace[key], rtol=2e-2, atol=2e-3),
+            f"DESC and vmec_jax flux-tube traces drifted for '{key}'.",
+        )
+
+
 def test_vmec_optional():
     if not _vmec_jax_available():
         return "skip"
@@ -217,6 +236,7 @@ def run(args):
         ("kernel_smoke", test_kernel_smoke),
         ("kernel_package_legacy_parity", test_kernel_package_legacy_parity),
         ("desc_optional", test_desc_optional),
+        ("desc_flux_tube_optional", test_desc_flux_tube_optional),
         ("vmec_optional", test_vmec_optional),
         ("vmec_boozer_optional", test_vmec_boozer_optional),
     ]
