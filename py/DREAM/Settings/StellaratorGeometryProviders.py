@@ -1,5 +1,6 @@
 import pathlib
 import warnings
+from importlib import metadata as importlib_metadata
 
 import numpy as np
 
@@ -24,35 +25,44 @@ def _dependency_versions(*packages):
     return versions
 
 
+def _installed_version(*names):
+    for name in names:
+        try:
+            return importlib_metadata.version(name)
+        except importlib_metadata.PackageNotFoundError:
+            continue
+    return "unknown"
+
+
 def _reshape_desc_samples(eq, grid, name):
     return np.asarray(eq.compute(name, grid=grid)[name], dtype=np.float64)
 
 
 def _resolve_desc_equilibrium(source):
     try:
-        desc = import_optional("desc")
         source = str(source)
+        vmec = import_optional("desc.vmec")
+        io = import_optional("desc.io")
+        grid_mod = import_optional("desc.grid")
         if source.endswith(".nc"):
-            vmec = import_optional("desc.vmec")
             eq = vmec.VMECIO.load(source)
             source_kind = "vmec_wout"
         else:
-            io = import_optional("desc.io")
             eq = io.load(source)
             source_kind = "desc_equilibrium"
-
-        LinearGrid = import_optional("desc.grid").LinearGrid
+        LinearGrid = grid_mod.LinearGrid
     except Exception as ex:
         raise DREAMException(
             "DESC-based stellarator loading is unavailable. Install DESC in a Python environment with its optional GUI/backend "
             "requirements satisfied, or load a precomputed DREAM geometry package instead."
         ) from ex
 
-    return desc, eq, LinearGrid, source_kind
+    dependency_versions = {"desc-opt": _installed_version("desc-opt", "desc")}
+    return eq, LinearGrid, source_kind, dependency_versions
 
 
 def _desc_sample_package(source, nr, ntheta, nphi, provider_name="desc"):
-    desc, eq, LinearGrid, source_kind = _resolve_desc_equilibrium(source)
+    eq, LinearGrid, source_kind, dependency_versions = _resolve_desc_equilibrium(source)
 
     grid = LinearGrid(
         L=int(nr - 1),
@@ -119,7 +129,7 @@ def _desc_sample_package(source, nr, ntheta, nphi, provider_name="desc"):
         "major_radius": float(eq.axis.R_n[eq.axis.R_basis.get_idx(0)]),
         "minor_radius": a,
         "nfp": int(eq.NFP),
-        "dependency_versions": _dependency_versions(desc),
+        "dependency_versions": dependency_versions,
     }
 
     return StellaratorGeometryPackage(metadata=metadata, grid={"rho": rho, "theta": theta, "phi": phi}, profiles=profiles, sampled=sampled)
@@ -128,14 +138,12 @@ def _desc_sample_package(source, nr, ntheta, nphi, provider_name="desc"):
 def _import_vmec_jax_stack():
     vmec_jax = import_optional("vmec_jax", package_root_env="VMEC_JAX_ROOT")
     wout = import_optional("vmec_jax.wout", package_root_env="VMEC_JAX_ROOT")
-    booz_input = import_optional("vmec_jax.booz_input", package_root_env="VMEC_JAX_ROOT")
-    return vmec_jax, wout, booz_input
+    return vmec_jax, wout
 
 
 def _build_vmec_spectral_block(source, with_boozer=False):
-    vmec_jax, wout_mod, booz_input = _import_vmec_jax_stack()
+    vmec_jax, wout_mod = _import_vmec_jax_stack()
     wout = wout_mod.read_wout(source)
-    state = wout_mod.state_from_wout(wout)
 
     iota_profile = np.asarray(int(getattr(wout, "signgs", 1)) * getattr(wout, "iotas", getattr(wout, "iotaf")), dtype=np.float64)
     if iota_profile.size > 1 and abs(iota_profile[0]) < 1e-14:
@@ -173,60 +181,46 @@ def _build_vmec_spectral_block(source, with_boozer=False):
 
     if with_boozer:
         try:
-            config = import_optional("vmec_jax.config", package_root_env="VMEC_JAX_ROOT")
-            static_mod = import_optional("vmec_jax.static", package_root_env="VMEC_JAX_ROOT")
             booz_xform_mod = import_optional("booz_xform_jax", package_root_env="BOOZ_XFORM_JAX_ROOT")
-
-            source_path = pathlib.Path(source)
-            input_path = source_path.with_name("input." + source_path.name.removeprefix("wout_").removesuffix(".nc"))
-            if input_path.is_file():
-                cfg, indata = config.load_config(str(input_path))
-                static = static_mod.build_static(cfg)
-                inputs = booz_input.booz_xform_inputs_from_state(
-                    state=state,
-                    static=static,
-                    indata=indata,
-                    signgs=getattr(wout, "signgs", 1),
-                )
-
-                bx = booz_xform_mod.Booz_xform()
-                bx.read_wout(str(source), flux=True)
-                bx.run()
-
-                block["representation"] = "vmec_wout+booz_xform"
-                block["booz_xform"] = {
-                    "xm_b": np.asarray(bx.xm_b, dtype=np.int64),
-                    "xn_b": np.asarray(bx.xn_b, dtype=np.int64),
-                    "bmnc_b": np.asarray(bx.bmnc_b, dtype=np.float64),
-                    "rmnc_b": np.asarray(bx.rmnc_b, dtype=np.float64),
-                    "zmns_b": np.asarray(bx.zmns_b, dtype=np.float64),
-                    "gmnc_b": np.asarray(getattr(bx, "gmnc_b", np.zeros_like(bx.bmnc_b)), dtype=np.float64),
-                    "iota": np.asarray(bx.iota, dtype=np.float64),
-                    "s_b": np.asarray(bx.s_b, dtype=np.float64),
-                    "transform_provenance": {
-                        "input_path": str(input_path),
-                        "source_path": str(source),
-                    },
-                }
-                block["vmec_inputs"] = {
-                    "rmnc": np.asarray(inputs.rmnc, dtype=np.float64),
-                    "zmns": np.asarray(inputs.zmns, dtype=np.float64),
-                    "lmns": np.asarray(inputs.lmns, dtype=np.float64),
-                    "bmnc": np.asarray(inputs.bmnc, dtype=np.float64),
-                    "xm": np.asarray(inputs.xm, dtype=np.int64),
-                    "xn": np.asarray(inputs.xn, dtype=np.int64),
-                    "xm_nyq": np.asarray(inputs.xm_nyq, dtype=np.int64),
-                    "xn_nyq": np.asarray(inputs.xn_nyq, dtype=np.int64),
-                }
-                block["dependency_versions"].update(_dependency_versions(booz_xform_mod))
+            bx = booz_xform_mod.Booz_xform()
+            if hasattr(bx, "verbose"):
+                bx.verbose = 0
+            if hasattr(bx, "read_wout_data"):
+                bx.read_wout_data(wout, flux=True)
+                reader = "read_wout_data"
             else:
-                warnings.warn(
-                    f"VmecJaxProvider: Did not find matching VMEC input file '{input_path}', so the Boozer transform block was skipped.",
-                    RuntimeWarning,
-                )
+                bx.read_wout(str(source), flux=True)
+                reader = "read_wout"
+            bx.run()
+
+            block["representation"] = "vmec_wout+booz_xform"
+            block["booz_xform"] = {
+                "xm_b": np.asarray(bx.xm_b, dtype=np.int64),
+                "xn_b": np.asarray(bx.xn_b, dtype=np.int64),
+                "bmnc_b": np.asarray(bx.bmnc_b, dtype=np.float64),
+                "rmnc_b": np.asarray(bx.rmnc_b, dtype=np.float64),
+                "zmns_b": np.asarray(bx.zmns_b, dtype=np.float64),
+                "gmnc_b": np.asarray(getattr(bx, "gmnc_b", np.zeros_like(bx.bmnc_b)), dtype=np.float64),
+                "iota": np.asarray(getattr(bx, "iota", iota_profile), dtype=np.float64),
+                "s_b": np.asarray(getattr(bx, "s_b", block["s"][1:]), dtype=np.float64),
+                "compute_surfs": np.asarray(getattr(bx, "compute_surfs", np.arange(len(block["s"]) - 1)), dtype=np.int64),
+                "mboz": int(getattr(bx, "mboz", 0) or 0),
+                "nboz": int(getattr(bx, "nboz", 0) or 0),
+                "transform_provenance": {
+                    "reader": reader,
+                    "source_path": str(source),
+                    "flux_profiles": True,
+                },
+            }
+            block["dependency_versions"]["booz_xform_jax"] = _installed_version("booz_xform_jax")
         except ImportError as ex:
             warnings.warn(
                 f"VmecJaxProvider: Unable to populate Boozer block because an optional dependency is missing ({ex}).",
+                RuntimeWarning,
+            )
+        except Exception as ex:
+            warnings.warn(
+                f"VmecJaxProvider: Boozer transform failed for '{source}' ({ex}).",
                 RuntimeWarning,
             )
 
@@ -421,8 +415,9 @@ class VmecJaxProvider(GeometryProvider):
         package.metadata["source_kind"] = "vmec_wout"
         package.metadata["spectral_source"] = "vmec_jax"
         package.metadata["schema_version"] = GEOMETRY_PACKAGE_V2
-        package.metadata["dependency_versions"].update(_build_vmec_spectral_block(self.source, with_boozer=False)["dependency_versions"])
-        package.boozer = _build_vmec_spectral_block(self.source, with_boozer=with_boozer)
+        spectral_block = _build_vmec_spectral_block(self.source, with_boozer=with_boozer)
+        package.metadata["dependency_versions"].update(spectral_block["dependency_versions"])
+        package.boozer = spectral_block
         package.validate()
         return package
 
