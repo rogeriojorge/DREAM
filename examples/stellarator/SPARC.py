@@ -1,3 +1,8 @@
+"""Legacy helper module for the historical exploratory SPARC script.
+
+This module is not part of the maintained provider/package example workflow.
+"""
+
 import numpy as np
 import sys
 import netCDF4 

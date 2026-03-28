@@ -1,7 +1,19 @@
+"""Legacy exploratory stellarator script.
+
+This file predates the provider/package workflow and is kept for historical
+reference only. For maintained examples, see:
+
+- geometry_from_package.py
+- geometry_from_vmec.py
+- geometry_from_desc.py
+- recommended_workflow.py
+"""
+
 import numpy as np
 import scipy.constants
 from scipy import interpolate
 import os, sys
+import warnings
 import QAS as Stellarator
 
 import Exceptions
@@ -417,5 +429,12 @@ def runSimulation(nD_inj, nNe_inj, cD_inj=0, cNe_inj=0, isotropic=False, superth
         os.remove(out_init)
 
     return do_TQ, do_CQ
-#runSimulation(0, 0, isotropic=False, activated='DT', outputDir='.')
-runSimulation(5e21, 1e18, isotropic=False, activated='DT', bootstrap=True, outputDir='.')
+
+
+if __name__ == "__main__":
+    warnings.warn(
+        "examples/stellarator/runStellarator.py is a legacy exploratory script. "
+        "Prefer examples/stellarator/recommended_workflow.py or the provider/package examples for maintained workflows.",
+        RuntimeWarning,
+    )
+    runSimulation(5e21, 1e18, isotropic=False, activated='DT', bootstrap=True, outputDir='.')

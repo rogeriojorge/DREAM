@@ -134,6 +134,10 @@ Available example entry points:
 - `examples/stellarator/recommended_workflow.py`: recommended end-to-end workflow that loads or builds a package, inspects it, evaluates a flux tube, and can run the no-bootstrap smoke case.
 - `examples/stellarator/package_no_bootstrap_smoke.py`: run a minimal no-bootstrap DREAM case from a geometry source or package.
 
+The example directory also contains older exploratory scripts. Those are now
+documented separately in `examples/stellarator/README.md` and should be treated
+as legacy reference material rather than the maintained interface.
+
 Typical workflows:
 
 ```bash
