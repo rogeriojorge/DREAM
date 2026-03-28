@@ -125,7 +125,16 @@ Available example entry points:
 - `examples/stellarator/geometry_from_package.py`: load a precomputed DREAM geometry package.
 - `examples/stellarator/geometry_from_vmec.py`: build a package from a VMEC `wout` file using `vmec_jax`.
 - `examples/stellarator/geometry_from_desc.py`: build a package through the DESC-backed frontend.
+- `examples/stellarator/recommended_workflow.py`: recommended end-to-end workflow that loads or builds a package, inspects it, evaluates a flux tube, and can run the no-bootstrap smoke case.
 - `examples/stellarator/package_no_bootstrap_smoke.py`: run a minimal no-bootstrap DREAM case from a geometry source or package.
+
+Typical workflows:
+
+```bash
+python examples/stellarator/recommended_workflow.py
+python examples/stellarator/recommended_workflow.py --provider vmec_jax --with-boozer --cache /tmp/stellarator_geometry_vmec.h5
+python examples/stellarator/recommended_workflow.py --provider package --source examples/stellarator/data/stellarator_geometry_v2.h5 --run-smoke
+```
 
 Legacy arguments are still accepted for compatibility:
 
