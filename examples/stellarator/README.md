@@ -6,6 +6,7 @@ This directory currently contains two kinds of material:
 These are the supported entry points for the current stellarator geometry stack.
 
 - `recommended_workflow.py`: end-to-end workflow that loads or builds a geometry package, inspects it, evaluates a flux tube, and can run the no-bootstrap smoke case.
+- `compare_geometry.py`: compare two geometry sources or packages and print a compact parity report.
 - `geometry_from_package.py`: load a precomputed DREAM geometry package and inspect it.
 - `geometry_from_vmec.py`: build a geometry package from a VMEC `wout` file through `provider="vmec_jax"`.
 - `geometry_from_desc.py`: build a geometry package through `provider="desc"`.

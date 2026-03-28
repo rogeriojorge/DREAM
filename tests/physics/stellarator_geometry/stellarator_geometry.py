@@ -28,6 +28,7 @@ LEGACY_CACHE = ROOT / "legacy_numeric_stellarator_cache.h5"
 WOUT = ROOT / "wout_LandremanPaul2021_QA_lowres_reference.nc"
 KERNEL_SMOKE = pathlib.Path(__file__).resolve().parents[3] / "examples" / "stellarator" / "package_no_bootstrap_smoke.py"
 RECOMMENDED_WORKFLOW = pathlib.Path(__file__).resolve().parents[3] / "examples" / "stellarator" / "recommended_workflow.py"
+COMPARE_GEOMETRY = pathlib.Path(__file__).resolve().parents[3] / "examples" / "stellarator" / "compare_geometry.py"
 TEST_MINOR_RADIUS = 0.18
 
 
@@ -329,6 +330,7 @@ def test_examples_directory_readme():
     _assert("Maintained provider/package workflow examples" in readme, "Examples README does not document the maintained workflow section.")
     _assert("Legacy exploratory scripts" in readme, "Examples README does not document the legacy examples section.")
     _assert("recommended_workflow.py" in readme, "Examples README does not point users to the maintained workflow entry point.")
+    _assert("compare_geometry.py" in readme, "Examples README does not document the parity-report example.")
 
 
 def test_legacy_scripts_guarded():
@@ -356,6 +358,32 @@ def test_kernel_package_legacy_parity():
             np.allclose(pkg[key], legacy[key], rtol=1e-11, atol=1e-12),
             f"Package-backed and legacy-cache-backed kernel outputs differ for '{key}'.",
         )
+
+
+def test_compare_geometry_example():
+    command = [
+        sys.executable,
+        str(COMPARE_GEOMETRY),
+        "--source-a",
+        str(PACKAGE_V2),
+        "--provider-a",
+        "package",
+        "--source-b",
+        str(PACKAGE_V2),
+        "--provider-b",
+        "package",
+        "--fail-on-drift",
+    ]
+
+    result = subprocess.run(
+        command,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, PYTHONPATH=str(pathlib.Path(__file__).resolve().parents[3] / "py")),
+    )
+    _assert("Geometry parity report" in result.stdout, "Geometry compare example did not print the report header.")
+    _assert("Overall status: PASS" in result.stdout, "Geometry compare example did not report PASS for identical packages.")
 
 
 def test_desc_optional():
@@ -431,6 +459,41 @@ def test_vmec_generated_package_frontend_parity_optional():
     _assert_geometry_parity(provider_rg, package_rg, context="VMEC package parity")
 
 
+def test_compare_geometry_vmec_provider_optional():
+    if not _vmec_jax_available():
+        return "skip"
+
+    with tempfile.TemporaryDirectory() as td:
+        package_path = pathlib.Path(td) / "vmec-compare-package.h5"
+        command = [
+            sys.executable,
+            str(COMPARE_GEOMETRY),
+            "--source-a",
+            str(WOUT),
+            "--provider-a",
+            "vmec_jax",
+            "--cache-a",
+            str(package_path),
+            "--source-b",
+            str(package_path),
+            "--provider-b",
+            "package",
+            "--fail-on-drift",
+        ]
+        if _booz_xform_available():
+            command.append("--with-boozer")
+
+        result = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            env=dict(os.environ, PYTHONPATH=str(pathlib.Path(__file__).resolve().parents[3] / "py")),
+        )
+
+    _assert("Overall status: PASS" in result.stdout, "VMEC provider/package compare example did not report PASS.")
+
+
 def test_vmec_boozer_optional():
     if not _vmec_jax_available() or not _booz_xform_available():
         return "skip"
@@ -456,11 +519,13 @@ def run(args):
         ("legacy_scripts_guarded", test_legacy_scripts_guarded),
         ("kernel_smoke", test_kernel_smoke),
         ("kernel_package_legacy_parity", test_kernel_package_legacy_parity),
+        ("compare_geometry_example", test_compare_geometry_example),
         ("desc_optional", test_desc_optional),
         ("desc_generated_package_frontend_parity_optional", test_desc_generated_package_frontend_parity_optional),
         ("desc_flux_tube_optional", test_desc_flux_tube_optional),
         ("vmec_optional", test_vmec_optional),
         ("vmec_generated_package_frontend_parity_optional", test_vmec_generated_package_frontend_parity_optional),
+        ("compare_geometry_vmec_provider_optional", test_compare_geometry_vmec_provider_optional),
         ("vmec_boozer_optional", test_vmec_boozer_optional),
     ]
 
