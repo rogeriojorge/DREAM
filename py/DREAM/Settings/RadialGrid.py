@@ -16,6 +16,7 @@ from .StellaratorMagneticField import (
     PROVIDER_VMEC_JAX,
     StellaratorMagneticField,
 )
+from .StellaratorGeometry import StellaratorGeometryPackage
 from .Equations.PrescribedScalarParameter import PrescribedScalarParameter
 
 
@@ -29,6 +30,7 @@ FILE_FORMAT_LUKE = 1
 FILE_FORMAT_DESC = 2
 
 STELLARATOR_PROVIDERS = [PROVIDER_DESC, PROVIDER_VMEC_JAX, PROVIDER_PACKAGE]
+_STELLARATOR_LEGACY_UNSET = object()
 
 
 class RadialGrid(PrescribedScalarParameter):
@@ -421,26 +423,42 @@ class RadialGrid(PrescribedScalarParameter):
     def setStellarator(
         self,
         source,
-        format=FILE_FORMAT_DESC,
+        format=_STELLARATOR_LEGACY_UNSET,
         nr_equil=None,
         ntheta_equil=None,
         nphi_equil=None,
-        datafilename=None,
+        datafilename=_STELLARATOR_LEGACY_UNSET,
         provider=None,
         cache_filename=None,
         write_cache=False,
         with_boozer=False,
     ):
         """
-        Sets the numerical magnetic field to use for the simulation.
+        Load stellarator geometry for the simulation.
+
+        The supported public API is provider-based:
+
+        ``setStellarator(source, provider=..., cache_filename=..., write_cache=...)``
+
+        The legacy ``format`` and ``datafilename`` arguments are still accepted
+        for compatibility, but they emit deprecation warnings.
 
         :param str source: Name of file containing magnetic field data or a geometry package.
-        :param int format: Legacy compatibility selector. ``FILE_FORMAT_DESC`` maps to ``provider='desc'``.
+        :param str provider: Geometry provider. Supported values are ``'desc'``, ``'vmec_jax'`` and ``'package'``.
+        :param int format: Deprecated compatibility selector. ``FILE_FORMAT_DESC`` maps to ``provider='desc'``.
         """
         self.type = TYPE_STELLARATOR
         self.num_filename = source
 
-        if datafilename is not None:
+        legacy_format = None
+        if format is not _STELLARATOR_LEGACY_UNSET:
+            legacy_format = format
+            warnings.warn(
+                "RadialGrid.setStellarator(): 'format' is deprecated. Use 'provider' instead.",
+                DeprecationWarning,
+            )
+
+        if datafilename is not _STELLARATOR_LEGACY_UNSET:
             warnings.warn(
                 "RadialGrid.setStellarator(): 'datafilename' is deprecated. Use 'cache_filename' instead.",
                 DeprecationWarning,
@@ -448,12 +466,29 @@ class RadialGrid(PrescribedScalarParameter):
             if cache_filename is None:
                 cache_filename = datafilename
 
-        if format is not None:
-            self.num_fileformat = format
-            if provider is None and format == FILE_FORMAT_DESC:
+        if provider is not None:
+            provider = str(provider).lower()
+
+        if legacy_format is not None:
+            self.num_fileformat = legacy_format
+            if legacy_format != FILE_FORMAT_DESC:
+                raise DREAMException(
+                    f"RadialGrid.setStellarator(): Unrecognized legacy stellarator format '{legacy_format}'. "
+                    f"Only FILE_FORMAT_DESC is supported. Use 'provider' for the modern API."
+                )
+            if provider is None:
                 provider = PROVIDER_DESC
+            elif provider != PROVIDER_DESC:
+                raise DREAMException(
+                    "RadialGrid.setStellarator(): Conflicting stellarator source selection. "
+                    "Legacy 'format=FILE_FORMAT_DESC' implies provider='desc', but a different provider was requested."
+                )
+
         if provider is None:
-            provider = PROVIDER_PACKAGE if str(source).endswith(".h5") else PROVIDER_DESC
+            if StellaratorGeometryPackage.is_geometry_package(source):
+                provider = PROVIDER_PACKAGE
+            else:
+                provider = PROVIDER_DESC
 
         if provider not in STELLARATOR_PROVIDERS:
             raise DREAMException(
@@ -885,7 +920,9 @@ class RadialGrid(PrescribedScalarParameter):
         elif self.type == TYPE_STELLARATOR:
             formats = [FILE_FORMAT_DESC]
             if (self.num_fileformat is not None) and (self.num_fileformat not in formats):
-                raise DREAMException("RadialGrid: Unrecognized file format specified for numerical magnetic field: {}.".format(self.num_fileformat))
+                raise DREAMException(
+                    "RadialGrid: Unrecognized legacy file format specified for stellarator geometry: {}.".format(self.num_fileformat)
+                )
 
             has_geometry = all(getattr(self, key) is not None for key in ['rho', 'theta', 'phi', 'R', 'Z', 'B', 'G', 'I', 'iota', 'psi_T'])
             has_source = type(self.num_filename) == str and pathlib.Path(self.num_filename).is_file()
